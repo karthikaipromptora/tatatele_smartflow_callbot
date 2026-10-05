@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartFlow Call Test</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280;
+    --border: #e3e6eb; --accent: #1f5eff; --ok: #16803c; --bad: #c62828; --warn: #a15c00;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select { font: inherit; color: var(--text); padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; width: 100%; }
+  .phone input { font-size: 17px; }
+  button { font: inherit; font-weight: 600; padding: 10px 22px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .55; cursor: default; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  #result { font-size: 14px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: #f1f4ff; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eef0f3; }
+  .pill.completed { background: #e3f4e8; color: var(--ok); }
+  .pill.active { background: #e6edff; color: var(--accent); }
+  .pill.failed { background: #fde8e8; color: var(--bad); }
+  .pill.initiated { background: #fff2dd; color: var(--warn); }
+  .err { color: var(--bad); font-size: 12px; }
+  .table-wrap { overflow-x: auto; }
+  #detail .turn { padding: 8px 10px; border-radius: 8px; margin: 6px 0; max-width: 85%; }
+  #detail .assistant { background: #eef3ff; }
+  #detail .user { background: #f1f1f1; margin-left: auto; }
+  #detail .role { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .muted { color: var(--muted); font-size: 13px; }
+  audio { width: 100%; margin: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SmartFlow outbound call test</h1>
+
+  <section class="card">
+    <h2>Place a call</h2>
+    <form id="call-form">
+      <label class="phone">Destination phone number
+        <input name="phone_number" type="tel" placeholder="+919876543210" required autocomplete="off">
+      </label>
+      <details>
+        <summary>Customer details (optional — defaults are used when empty)</summary>
+        <div class="grid" style="margin-top:12px">
+          <label>Customer name <input name="customer_name" placeholder="Sir/Madam"></label>
+          <label>Amount (₹) <input name="amount" placeholder="25,000"></label>
+          <label>Billing period <input name="billing_period" placeholder="March 2026"></label>
+          <label>Service <input name="service_name" placeholder="Monthly Telecom Services"></label>
+          <label>Language
+            <select name="language"><option>English</option><option>Hindi</option></select>
+          </label>
+          <label>Voice <input name="voice_id" placeholder="shubh"></label>
+        </div>
+      </details>
+      <div class="row">
+        <button type="submit" id="call-btn">Call</button>
+        <span id="result" aria-live="polite"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Recent calls</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Number</th><th>Customer</th><th>Status</th></tr></thead>
+        <tbody id="calls"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="detail" hidden>
+    <h2 id="detail-title">Call</h2>
+    <div id="detail-body"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function el(tag, attrs = {}, text) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+$("call-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("call-btn"), result = $("result");
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  btn.disabled = true;
+  result.className = ""; result.textContent = "Requesting call…";
+  try {
+    const resp = await fetch("/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+    result.className = "ok"; result.textContent = `Call requested (ref ${data.ref_id.slice(0, 8)})`;
+  } catch (err) {
+    result.className = "bad"; result.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    loadCalls();
+  }
+});
+
+async function loadCalls() {
+  let calls;
+  try {
+    const resp = await fetch("/logs");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    calls = await resp.json();
+  } catch (err) {
+    $("calls").replaceChildren(rowMessage(`Could not load calls: ${err.message}`));
+    return;
+  }
+  if (!calls.length) { $("calls").replaceChildren(rowMessage("No calls yet")); return; }
+  $("calls").replaceChildren(...calls.map((c) => {
+    const tr = el("tr");
+    tr.append(
+      el("td", {}, new Date(c.created_at).toLocaleString()),
+      el("td", {}, c.phone_number || "—"),
+      el("td", {}, c.customer_name),
+    );
+    const status = el("td");
+    status.append(el("span", { class: `pill ${c.status}` }, c.status));
+    if (c.error) status.append(el("div", { class: "err" }, c.error));
+    tr.append(status);
+    tr.addEventListener("click", () => showCall(c.ref_id));
+    return tr;
+  }));
+}
+
+function rowMessage(text) {
+  const tr = el("tr");
+  tr.append(el("td", { colspan: "4", class: "muted" }, text));
+  return tr;
+}
+
+async function showCall(refId) {
+  const resp = await fetch(`/logs/${refId}`);
+  if (!resp.ok) return;
+  const { call, transcript } = await resp.json();
+  $("detail").hidden = false;
+  $("detail-title").textContent = `${call.customer_name} — ${call.phone_number || "unknown number"}`;
+  const body = $("detail-body");
+  body.replaceChildren(el("div", { class: "muted" },
+    `ref ${call.ref_id} · callSid ${call.call_sid || "—"} · ${call.language} · ₹${call.amount} · ${call.billing_period}`));
+  if (call.recording_path) body.append(el("audio", { controls: "", src: `/recordings/${call.ref_id}` }));
+  if (!transcript.length) body.append(el("p", { class: "muted" }, "No transcript."));
+  for (const t of transcript) {
+    const turn = el("div", { class: `turn ${t.role}` });
+    turn.append(el("div", { class: "role" }, t.role === "assistant" ? "Bot" : "Customer"), el("div", {}, t.text));
+    body.append(turn);
+  }
+  $("detail").scrollIntoView({ behavior: "smooth" });
+}
+
+loadCalls();
+setInterval(loadCalls, 5000);
+</script>
+</body>
+</html>

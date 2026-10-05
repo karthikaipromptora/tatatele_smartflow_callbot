@@ -43,6 +43,7 @@ async def init_db():
                 ended_at        TIMESTAMPTZ
             )
         """)
+        await conn.execute("ALTER TABLE calls ADD COLUMN IF NOT EXISTS smartflow_ref_id TEXT")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS transcripts (
                 id          SERIAL PRIMARY KEY,
@@ -86,6 +87,30 @@ async def insert_call(ref_id: str, phone_number: str, ctx: dict, status: str = "
 async def get_call(ref_id: str) -> dict | None:
     async with _pool.acquire() as conn:
         return _row(await conn.fetchrow("SELECT * FROM calls WHERE ref_id=$1", ref_id))
+
+
+async def set_smartflow_ref(ref_id: str, smartflow_ref_id: str):
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE calls SET smartflow_ref_id=$2 WHERE ref_id=$1", ref_id, smartflow_ref_id
+        )
+
+
+async def find_recent_initiated_call(customer_number: str, within_minutes: int = 5) -> dict | None:
+    """Match an outbound stream to the call we requested, by the customer's last 10 digits."""
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT * FROM calls
+            WHERE status='initiated'
+              AND right(regexp_replace(phone_number, '\\D', '', 'g'), 10) = right(regexp_replace($1, '\\D', '', 'g'), 10)
+              AND created_at > NOW() - make_interval(mins => $2)
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            customer_number, within_minutes,
+        )
+        return _row(row)
 
 
 async def list_calls(limit: int = 50) -> list[dict]:

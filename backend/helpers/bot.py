@@ -80,7 +80,9 @@ async def run_bot(websocket: WebSocket, start: StreamStart, ctx: dict, ref_id: s
     llm = OpenAILLMService(
         api_key="local",
         base_url=os.getenv("LOCAL_LLM_URL", "http://164.52.198.104:8049/v1"),
-        model=os.getenv("LOCAL_LLM_MODEL", "google/gemma-4-26B-A4B-it"),
+        settings=OpenAILLMService.Settings(
+            model=os.getenv("LOCAL_LLM_MODEL", "google/gemma-4-26B-A4B-it"),
+        ),
     )
 
     stt = SarvamSTTService(

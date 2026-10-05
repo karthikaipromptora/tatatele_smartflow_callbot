@@ -52,7 +52,7 @@
     <h2>Place a call</h2>
     <form id="call-form">
       <label class="phone">Destination phone number
-        <input name="phone_number" type="tel" placeholder="+919876543210" required autocomplete="off">
+        <input name="phone_number" type="tel" placeholder="9876543210" required autocomplete="off">
       </label>
       <details>
         <summary>Customer details (optional — defaults are used when empty)</summary>
@@ -112,7 +112,7 @@ $("call-form").addEventListener("submit", async (e) => {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-    result.className = "ok"; result.textContent = `Call requested (ref ${data.ref_id.slice(0, 8)})`;
+    result.className = "ok"; result.textContent = `Call queued — the phone should ring shortly (ref ${data.ref_id.slice(0, 8)})`;
   } catch (err) {
     result.className = "bad"; result.textContent = err.message;
   } finally {

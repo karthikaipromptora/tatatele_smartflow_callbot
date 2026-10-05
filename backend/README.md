@@ -15,7 +15,7 @@ UI "Call" button ─► POST /start ─► SmartFlow Click to Call API ─► Sm
 - **`/ws`** is the SmartFlow **Static** WSS endpoint. It reads `ref_id` from the `start` event, loads the context and runs the bot. SmartFlow's wire format is the same as Twilio Media Streams (mulaw 8 kHz, base64), so the bot uses Pipecat's `TwilioFrameSerializer`.
 - After the call, the transcript is saved to Postgres and a mixed recording to `recordings/<ref_id>.wav`. You can see both in the UI.
 
-> **Status:** the Click to Call request in `helpers/smartflow.py:initiate_click_to_call` is still a stub because the API spec is pending. Until it's implemented, the Call button returns *"Click to Call is not integrated yet"*.
+Outbound calls go through the [Click to Call Support API](https://docs.smartflo.tatatelebusiness.com/reference/v1click_to_call_support): `POST /v1/click_to_call_support` with a Bearer API token, the Click to Call API key, `customer_number`, `async: 1`, and `custom_identifier: {"ref_id": ...}`. If the `start` event arrives without a `ref_id`, the bot falls back to the most recent `initiated` call to the same number within 5 minutes.
 
 ## Run
 
@@ -42,7 +42,8 @@ bot.example.com {
 ## SmartFlow portal setup
 
 1. **Channels Hub → VOICE Bot → Add VOICE Bot**: give it a name and description, and set WSS URL `wss://<your-domain>/ws`.
-2. **API Connect → Click to Call Support API → Generate API Key**, and set the VOICE Bot above as its destination.
+2. **API Connect → Click to Call Support API → Generate API Key**, and set the VOICE Bot above as its destination. Put the key in `SMARTFLOW_C2C_API_KEY`.
+3. **API Connect → API Tokens**: create a token and put it in `SMARTFLOW_API_TOKEN`.
 
 ## Local test without SmartFlow
 

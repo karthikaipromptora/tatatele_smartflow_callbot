@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -137,6 +138,7 @@ def validate_call(raw: dict, default_voice: str = DEFAULT_VOICE, today: date | N
     amount_paid = normalize_amount(raw.get("amount_paid")) or ""
     service = str(raw.get("service_name") or "").strip()[:120] or DEFAULT_CONTEXT["service_name"]
     clean = lambda key, n: re.sub(r"\.0$", "", str(raw.get(key) or "").strip())[:n]
+    initiator_email = str(raw.get("initiator_email") or raw.get("user_email") or os.getenv("DEFAULT_NOTIFICATION_EMAIL", "tejaabhishek@gmail.com")).strip().lower()
 
     if errors:
         return None, errors
@@ -156,6 +158,7 @@ def validate_call(raw: dict, default_voice: str = DEFAULT_VOICE, today: date | N
             "days_overdue": days_overdue,
             "amount_paid": amount_paid,
             "email_domain": str(raw.get("email_domain") or "").strip().lower()[:80] or email_domain(raw.get("email")),
+            "initiator_email": initiator_email,
         },
         "due_iso": due.isoformat() if due else "",
     }, []

@@ -299,6 +299,7 @@
       call_type: form.querySelector('input[name="call_type"]:checked').value,
       invoice_number: $("invoice").value.trim(),
       due_date: $("due").value,
+      initiator_email: state.config.default_notification_email || "tejaabhishek@gmail.com",
     };
     btn.disabled = true; btn.setAttribute("aria-busy", "true");
     btn.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), el("span", {}, "Placing call…"));
@@ -865,6 +866,7 @@
           item(c.status === "queued" ? "Queued" : "Dialed", fullTime(callTime(c))),
           c.started_at ? item("Answered", new Date(c.started_at).toLocaleTimeString("en-IN")) : null,
           c.batch_file_name ? item("Upload", c.batch_file_name) : null,
+          item("Report email", c.initiator_email || state.config.default_notification_email || "tejaabhishek@gmail.com"),
           item("Service", c.service_name, true))),
     ];
     if (c.error) sections.push(el("div", { class: "error-box", role: "alert" }, c.error));
@@ -877,6 +879,53 @@
             el("div", { class: `turn turn-${t.role === "assistant" ? "assistant" : "user"}` },
               el("div", { class: "turn-role" }, t.role === "assistant" ? "Arjun (bot)" : "Customer"), t.text)))
         : el("div", { class: "muted" }, live ? "The transcript appears once the call ends." : "No conversation was recorded.")));
+
+    if (c.status === "completed") {
+      const emailTarget = c.initiator_email || state.config.default_notification_email || "tejaabhishek@gmail.com";
+      const isSent = Boolean(c.email_sent_at);
+      const emailStatusText = isSent
+        ? `✓ Automated email sent to ${emailTarget} (${shortTime(c.email_sent_at)})`
+        : `Automated email sending to ${emailTarget}…`;
+
+      const sendEmailBtn = el("button", {
+        class: "btn btn-secondary btn-sm",
+        type: "button",
+        style: "margin-top: 8px",
+        onclick: async (e) => {
+          const btn = e.currentTarget;
+          const origText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = "Sending email…";
+          try {
+            const res = await api(`/logs/${encodeURIComponent(c.ref_id)}/send-email`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ recipient_email: emailTarget }),
+            });
+            if (res.success) {
+              toast("Email sent", `Summary and transcript sent to ${res.recipient}.`);
+              loadDetail(c.ref_id, true);
+              loadCalls();
+            } else if (res.reason) {
+              toast("Email skipped", res.reason, "error");
+            } else {
+              toast("Email error", res.error || "Failed to send email", "error");
+            }
+          } catch (err) {
+            toast("Email failed", err.message, "error");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = origText;
+          }
+        }
+      }, isSent ? "Re-send email summary & transcript" : "Email summary & transcript");
+
+      sections.push(el("section", {},
+        el("div", { class: "section-title" }, "Email notification"),
+        el("div", { class: isSent ? "hint" : "hint muted", style: isSent ? "color: var(--ok); font-weight: 500" : "" }, emailStatusText),
+        sendEmailBtn));
+    }
+
     sections.push(el("div", { class: "ids" },
       el("div", {}, "Reference ", el("code", {}, c.ref_id), copyBtn(c.ref_id)),
       c.call_sid ? el("div", {}, "Smartflo call ", el("code", {}, c.call_sid), copyBtn(c.call_sid)) : null));

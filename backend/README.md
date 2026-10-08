@@ -61,6 +61,16 @@ uv run python tests/mock_smartflow_client.py    # terminal 2
 
 The bot audio exactly as "SmartFlow" received it is written to `tests/output/`.
 
+## Dashboard
+
+| Page | What it does |
+|---|---|
+| `/` Start calls | Single-call form, Excel/CSV bulk upload with row-by-row validation, bulk upload progress (with "Stop remaining"), recent calls |
+| `/calls` Call logs | All calls with filters, search, per-upload view, CSV export, recording + transcript drawer |
+| `/voices` Voice library | All 37 Sarvam bulbul:v3 voices in English/Hindi at 8 kHz, custom sample line, set the default voice |
+
+Bulk uploads are stored as a queue in Postgres. One background worker dials them in file order, one call every `SMARTFLOW_CALL_GAP_SECONDS` (default 2s). If the server restarts mid-upload, the worker resumes from where it stopped. Voice previews are cached in `voice_cache/`.
+
 ## Endpoints
 
 | Method | Path | Purpose |
@@ -68,6 +78,12 @@ The bot audio exactly as "SmartFlow" received it is written to `tests/output/`.
 | GET  | `/` | Test UI |
 | POST | `/start` | `{phone_number, customer_name?, amount?, billing_period?, service_name?, language?, voice_id?}` |
 | WS   | `/ws` | SmartFlow bi-directional stream |
-| GET  | `/logs`, `/logs/{ref_id}` | Calls and transcript |
+| GET  | `/logs?limit=&batch_id=`, `/logs/{ref_id}` | Calls and transcript |
+| POST | `/batches/preview` | Upload .xlsx/.csv → validated rows (nothing is dialed) |
+| POST | `/batches` | `{file_name, rows, default_voice?}` → queue the calls |
+| GET  | `/batches`, `/batches/{id}` | Upload progress counts |
+| POST | `/batches/{id}/cancel` | Cancel calls not yet dialed |
+| GET  | `/batches/template.xlsx` | Upload template |
+| GET  | `/voices/catalog`, `/voices/{voice}/preview?language=&text=` | Voice list and cached 8 kHz samples |
 | GET  | `/recordings/{ref_id}` | Call recording (WAV) |
 | GET  | `/health` | Liveness |

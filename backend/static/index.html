@@ -3,178 +3,449 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SmartFlow Call Test</title>
-<style>
-  :root {
-    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280;
-    --border: #e3e6eb; --accent: #1f5eff; --ok: #16803c; --bad: #c62828; --warn: #a15c00;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
-  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 20px; }
-  h1 { font-size: 20px; margin: 0; }
-  h2 { font-size: 16px; margin: 0 0 12px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
-  input, select { font: inherit; color: var(--text); padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; width: 100%; }
-  .phone input { font-size: 17px; }
-  button { font: inherit; font-weight: 600; padding: 10px 22px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
-  button:disabled { opacity: .55; cursor: default; }
-  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-  #result { font-size: 14px; }
-  .ok { color: var(--ok); } .bad { color: var(--bad); }
-  details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
-  tbody tr { cursor: pointer; } tbody tr:hover { background: #f1f4ff; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eef0f3; }
-  .pill.completed { background: #e3f4e8; color: var(--ok); }
-  .pill.active { background: #e6edff; color: var(--accent); }
-  .pill.failed { background: #fde8e8; color: var(--bad); }
-  .pill.initiated { background: #fff2dd; color: var(--warn); }
-  .err { color: var(--bad); font-size: 12px; }
-  .table-wrap { overflow-x: auto; }
-  #detail .turn { padding: 8px 10px; border-radius: 8px; margin: 6px 0; max-width: 85%; }
-  #detail .assistant { background: #eef3ff; }
-  #detail .user { background: #f1f1f1; margin-left: auto; }
-  #detail .role { font-size: 11px; color: var(--muted); text-transform: uppercase; }
-  .muted { color: var(--muted); font-size: 13px; }
-  audio { width: 100%; margin: 8px 0; }
-</style>
+<title>Collection Voice Agent · Tata Tele Business Services</title>
+<link rel="icon" href="/static/tatatele-logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Ubuntu:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
 </head>
 <body>
-<main>
-  <h1>SmartFlow outbound call test</h1>
 
-  <section class="card">
-    <h2>Place a call</h2>
-    <form id="call-form">
-      <label class="phone">Destination phone number
-        <input name="phone_number" type="tel" placeholder="9876543210" required autocomplete="off">
-      </label>
-      <details>
-        <summary>Customer details (optional — defaults are used when empty)</summary>
-        <div class="grid" style="margin-top:12px">
-          <label>Customer name <input name="customer_name" placeholder="Sir/Madam"></label>
-          <label>Amount (₹) <input name="amount" placeholder="25,000"></label>
-          <label>Billing period <input name="billing_period" placeholder="March 2026"></label>
-          <label>Service <input name="service_name" placeholder="Monthly Telecom Services"></label>
-          <label>Language
-            <select name="language"><option>English</option><option>Hindi</option></select>
-          </label>
-          <label>Voice <input name="voice_id" placeholder="shubh"></label>
-        </div>
-      </details>
-      <div class="row">
-        <button type="submit" id="call-btn">Call</button>
-        <span id="result" aria-live="polite"></span>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 18v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1"/></symbol>
+  <symbol id="i-sheet" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h8M12 11v8"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.4-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.4 6.4L3 16"/><path d="M3 21v-5h5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-headphones"viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></symbol>
+</svg>
+
+<div class="shell">
+<aside class="sidebar">
+  <a class="brand" href="/" data-link>
+    <img src="/static/tatatele-logo.svg" alt="Tata Tele Business Services">
+    <span class="product">
+      <span class="product-name">Collection Voice Agent</span>
+      <span class="product-sub">Smartflo · Pilot</span>
+    </span>
+  </a>
+  <nav class="nav" aria-label="Main">
+    <span class="nav-label">Workspace</span>
+    <a href="/" data-link><svg class="icon"><use href="#i-phone"/></svg>Start calls</a>
+    <a href="/calls" data-link><svg class="icon"><use href="#i-list"/></svg>Call logs</a>
+    <a href="/voices" data-link><svg class="icon"><use href="#i-mic"/></svg>Voice library</a>
+    <a href="/settings" data-link><svg class="icon"><use href="#i-settings"/></svg>Settings</a>
+  </nav>
+  <div class="sidebar-foot">
+    <span class="health" id="health" data-state="unknown" role="status">
+      <span class="dot" aria-hidden="true"></span><span class="health-text" id="health-text">Checking service…</span>
+    </span>
+  </div>
+</aside>
+<div class="content">
+
+<!-- ═══ Start calls ═══════════════════════════════════════════════════════ -->
+<main class="page" data-page="start" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Start calls</h1>
+      <p>Call one customer, or upload a list and Arjun calls everyone in turn.</p>
+    </div>
+  </div>
+
+  <div class="grid-start" id="start-grid">
+    <section class="card" aria-label="New calls">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tab-single" aria-controls="panel-single" aria-selected="true"><svg class="icon"><use href="#i-phone"/></svg>Single call</button>
+        <button type="button" role="tab" id="tab-bulk" aria-controls="panel-bulk" aria-selected="false"><svg class="icon"><use href="#i-sheet"/></svg>Bulk upload</button>
       </div>
-    </form>
+
+      <!-- Single call -->
+      <div class="card-body" role="tabpanel" id="panel-single" aria-labelledby="tab-single">
+        <form id="call-form" class="form" novalidate>
+          <div class="field">
+            <span class="label" id="ct-label">Call type</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="ct-label">
+              <input type="radio" id="ct-overdue" name="call_type" value="overdue" checked><label for="ct-overdue">Overdue collection</label>
+              <input type="radio" id="ct-predue" name="call_type" value="predue"><label for="ct-predue">Pre-due reminder</label>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field" data-field="phone_number">
+              <label for="phone">Customer phone number<span class="req" aria-hidden="true">*</span></label>
+              <div class="control">
+                <span class="affix" aria-hidden="true">+91</span>
+                <input id="phone" name="phone_number" type="tel" inputmode="numeric" autocomplete="off" placeholder="98765 43210" maxlength="14" aria-describedby="phone-hint" required>
+              </div>
+              <div class="hint" id="phone-hint">10-digit mobile or landline number</div>
+            </div>
+            <div class="field" data-field="customer_name">
+              <label for="name">Customer name<span class="req" aria-hidden="true">*</span></label>
+              <div class="control"><input id="name" name="customer_name" autocomplete="off" placeholder="Customer or company name" maxlength="80" aria-describedby="name-hint" required></div>
+              <div class="hint" id="name-hint"></div>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field" data-field="amount">
+              <label for="amount">Amount due<span class="req" aria-hidden="true">*</span></label>
+              <div class="control">
+                <span class="affix" aria-hidden="true">₹</span>
+                <input id="amount" name="amount" inputmode="numeric" autocomplete="off" placeholder="25,000" maxlength="14" aria-describedby="amount-hint" required>
+              </div>
+              <div class="hint" id="amount-hint"></div>
+            </div>
+            <div class="field" data-field="billing_period">
+              <label for="period">Billing period<span class="req" aria-hidden="true">*</span></label>
+              <div class="control"><input id="period" name="billing_period" type="month" aria-describedby="period-hint" required></div>
+              <div class="hint" id="period-hint"></div>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="invoice">Invoice number</label>
+              <div class="control"><input id="invoice" name="invoice_number" autocomplete="off" placeholder="Optional" maxlength="30"></div>
+            </div>
+            <div class="field" data-field="due_date">
+              <label for="due">Payment due date</label>
+              <div class="control"><input id="due" name="due_date" type="date"></div>
+              <div class="hint" id="due-hint">Optional. Lets Arjun mention the due date and days overdue.</div>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="service">Service</label>
+              <div class="control"><input id="service" name="service_name" maxlength="120" value="Monthly Telecom Services (Voice, Internet & Business Connectivity)"></div>
+            </div>
+            <div class="field">
+              <label for="voice">Agent voice</label>
+              <div class="control control-end">
+                <select id="voice" name="voice_id"><option value="shubh">Shubh</option></select>
+                <button type="button" class="inline-link" id="voice-preview-btn" aria-label="Listen to this voice"><svg class="icon"><use href="#i-headphones"/></svg>Listen</button>
+              </div>
+              <div class="hint">Compare all voices in the <a href="/voices" data-link>Voice library</a>.</div>
+            </div>
+          </div>
+          <div class="hint">Arjun opens in English and asks whether the customer prefers English or Hindi.</div>
+
+          <button class="btn btn-primary btn-block" type="submit" id="call-btn">
+            <svg class="icon"><use href="#i-phone"/></svg><span id="call-btn-text">Call customer</span>
+          </button>
+          <div class="form-note">The call is placed from the Smartflo caller ID configured for this account.</div>
+        </form>
+      </div>
+
+      <!-- Bulk upload -->
+      <div class="card-body" role="tabpanel" id="panel-bulk" aria-labelledby="tab-bulk" hidden>
+        <div class="calltype" role="radiogroup" aria-label="Call type for this upload" id="bulk-type">
+          <label class="calltype-option">
+            <input type="radio" name="bulk_type" value="overdue" checked>
+            <span class="calltype-card">
+              <span class="calltype-title">Overdue collection</span>
+              <span class="calltype-desc">Customers whose due date has passed. Arjun asks for a payment date.</span>
+            </span>
+          </label>
+          <label class="calltype-option">
+            <input type="radio" name="bulk_type" value="predue">
+            <span class="calltype-card">
+              <span class="calltype-title">Pre-due reminder</span>
+              <span class="calltype-desc">Invoices not yet due. A short, friendly reminder of the due date.</span>
+            </span>
+          </label>
+        </div>
+
+        <div id="bulk-idle">
+          <label class="dropzone" id="dropzone" tabindex="0">
+            <span class="badge-icon"><svg class="icon"><use href="#i-upload"/></svg></span>
+            <strong>Drop your Excel or CSV file here</strong>
+            <span class="muted">or <u>browse your computer</u> · .xlsx or .csv, up to <span id="max-rows">500</span> customers</span>
+            <input type="file" id="file-input" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" class="sr-only">
+          </label>
+          <div class="columns-guide">
+            <div class="row"><span>Format</span><span class="muted">The Smartflo collections export (<b>Invoice wise</b> + <b>Account Wise</b> sheets), uploaded as-is, or the template below — same columns.</span></div>
+            <div class="row"><span>Required</span><span class="tag required">CUST_PHONE1</span><span class="tag required">BILL_COMPANY</span><span class="tag required">BALANCE_DUE_OVER_INVOICE</span><span class="tag required">STATEMENT_DATE</span><span class="tag required">PAYMENT_DUE_DATE</span><span class="tag required">BILL_REF_NO</span></div>
+            <div class="row"><span>Also used</span><span class="muted">Account no., product, amount paid and email domain go to the agent; region, partner and ageing bucket become filters; every other column is kept with the call log.</span></div>
+          </div>
+          <div class="bulk-actions">
+            <a class="btn btn-secondary btn-sm" href="/batches/template.xlsx" download><svg class="icon"><use href="#i-download"/></svg>Download template</a>
+            <span class="muted" style="font-size:13px">Calls use the <b id="bulk-default-voice">Shubh</b> voice — change it in the Voice library.</span>
+          </div>
+        </div>
+
+        <div id="bulk-loading" class="state" hidden>
+          <span class="spinner dark" style="display:inline-block;width:28px;height:28px;border-width:3px"></span>
+          <h3 style="margin-top:12px">Checking your file…</h3>
+        </div>
+
+        <div id="bulk-preview" hidden>
+          <div class="file-summary">
+            <div class="file"><svg class="icon"><use href="#i-sheet"/></svg>
+              <div><strong id="pv-file"></strong><span class="muted" id="pv-total" style="font-size:13px"></span></div>
+            </div>
+            <div class="counts" id="pv-counts"></div>
+            <button type="button" class="btn btn-secondary btn-sm" id="pv-reset">Choose another file</button>
+          </div>
+
+          <div class="pv-filters" id="pv-filters">
+            <div class="field pv-min">
+              <label for="pv-min">Minimum amount</label>
+              <div class="control"><span class="affix">₹</span><input id="pv-min" inputmode="numeric" value="100"></div>
+            </div>
+          </div>
+
+          <div class="preview-tools">
+            <div class="chips" style="padding:0" role="group" aria-label="Show rows" id="pv-view"></div>
+            <span class="muted" id="pv-note"></span>
+          </div>
+
+          <div class="preview-wrap editable">
+            <table id="pv-table">
+              <colgroup>
+                <col style="width:44px"><col><col style="width:128px"><col style="width:110px"><col style="width:148px">
+                <col style="width:134px"><col style="width:106px"><col style="width:160px">
+              </colgroup>
+              <thead><tr>
+                <th class="col-check"><input type="checkbox" id="pv-all" aria-label="Select all visible rows"></th>
+                <th><button type="button" class="sort" data-sort="customer_name">Customer</button></th>
+                <th>Phone</th>
+                <th>Invoice no.</th>
+                <th>Billing period</th>
+                <th><button type="button" class="sort" data-sort="due">Due date</button></th>
+                <th class="col-amount"><button type="button" class="sort" data-sort="amount">Amount</button></th>
+                <th>Status</th>
+              </tr></thead>
+              <tbody id="pv-rows"></tbody>
+            </table>
+          </div>
+
+          <div class="bulk-footer">
+            <span class="eta" id="pv-eta"></span>
+            <button type="button" class="btn btn-primary" id="pv-start"><svg class="icon"><use href="#i-phone"/></svg><span>Start calls</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="card" id="batches-card" aria-labelledby="batches-title" hidden>
+        <div class="card-head"><h2 id="batches-title">Bulk uploads</h2></div>
+        <div id="batches" style="margin-top:8px"></div>
+      </section>
+
+      <section class="card" aria-labelledby="recent-title">
+        <div class="card-head"><h2 id="recent-title">Recent calls</h2><span class="spacer"></span><span class="updated" id="recent-updated"></span></div>
+        <ul class="recent" id="recent" style="margin-top:12px"></ul>
+        <div class="card-foot"><a href="/calls" data-link>View all call logs<svg class="icon"><use href="#i-arrow"/></svg></a></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- ═══ Call logs ═════════════════════════════════════════════════════════ -->
+<main class="page" data-page="calls" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Call logs</h1>
+      <p>Every call with its outcome, recording and transcript.</p>
+    </div>
+  </div>
+
+  <section class="kpis" aria-label="Call summary">
+    <div class="card kpi"><span class="kpi-label">Calls</span><span class="kpi-value" id="k-total">–</span><span class="kpi-sub" id="k-total-sub">In this view</span></div>
+    <div class="card kpi"><span class="kpi-label">Completed</span><span class="kpi-value" id="k-done">–</span><div class="kpi-bar"><span id="k-done-bar" style="width:0"></span></div></div>
+    <div class="card kpi"><span class="kpi-label">In progress</span><span class="kpi-value" id="k-live">–</span><span class="kpi-sub">Waiting, ringing or on a call</span></div>
+    <div class="card kpi"><span class="kpi-label">Avg. call length</span><span class="kpi-value" id="k-avg">–</span><span class="kpi-sub">Completed calls</span></div>
   </section>
 
-  <section class="card">
-    <h2>Recent calls</h2>
+  <section class="card" aria-labelledby="calls-title">
+    <div class="toolbar">
+      <h2 id="calls-title">All calls</h2>
+      <span class="updated" id="updated"></span>
+      <div class="control batch-select">
+        <label class="sr-only" for="batch-filter">Filter by upload</label>
+        <select id="batch-filter"><option value="">All calls</option></select>
+      </div>
+      <div class="control search">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <label class="sr-only" for="q">Search calls</label>
+        <input id="q" type="search" placeholder="Search name or number" autocomplete="off">
+      </div>
+      <button class="btn btn-secondary btn-sm" id="export" type="button"><svg class="icon"><use href="#i-download"/></svg>Export CSV</button>
+      <button class="btn-icon" id="refresh" type="button" title="Refresh" aria-label="Refresh calls"><svg class="icon"><use href="#i-refresh"/></svg></button>
+    </div>
+    <div class="chips" role="group" aria-label="Filter by status" id="chips"></div>
+    <div id="banner"></div>
     <div class="table-wrap">
-      <table>
-        <thead><tr><th>Time</th><th>Number</th><th>Customer</th><th>Status</th></tr></thead>
-        <tbody id="calls"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+      <table class="calls-table">
+        <thead><tr><th scope="col">Customer</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Time</th></tr></thead>
+        <tbody id="rows"></tbody>
       </table>
     </div>
-  </section>
-
-  <section class="card" id="detail" hidden>
-    <h2 id="detail-title">Call</h2>
-    <div id="detail-body"></div>
+    <div id="empty"></div>
+    <div class="load-more" id="load-more" hidden><button class="btn btn-secondary btn-sm" type="button">Load more calls</button></div>
   </section>
 </main>
 
-<script>
-const $ = (id) => document.getElementById(id);
+<!-- ═══ Voice library ═════════════════════════════════════════════════════ -->
+<main class="page" data-page="voices" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Voice library</h1>
+      <p>Listen to every Sarvam voice at phone quality and pick the one Arjun uses on calls.</p>
+    </div>
+    <span class="spacer"></span>
+    <span class="default-voice"><svg class="icon"><use href="#i-mic"/></svg>Default voice for new calls: <b id="vl-default">Shubh</b></span>
+  </div>
 
-function el(tag, attrs = {}, text) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
+  <section class="card card-body" style="margin-bottom:20px">
+    <div class="voice-controls">
+      <div class="field">
+        <span class="label" id="vl-lang-label">Language</span>
+        <div class="segmented" role="radiogroup" aria-labelledby="vl-lang-label">
+          <input type="radio" id="vl-en" name="vl-lang" value="English" checked><label for="vl-en">English</label>
+          <input type="radio" id="vl-hi" name="vl-lang" value="Hindi"><label for="vl-hi">Hindi</label>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Voice type</span>
+        <div class="chips" style="padding:0" role="group" aria-label="Filter voices" id="vl-gender"></div>
+      </div>
+      <div></div>
+      <div class="field sample">
+        <label for="vl-text">Sample line</label>
+        <div class="control"><textarea id="vl-text" rows="2" maxlength="300"></textarea></div>
+        <div class="sample-meta">
+          <span class="hint">Every voice reads this line in the selected language. Audio is 8 kHz, exactly as customers hear it.</span>
+          <span class="hint"><span id="vl-count">0</span>/300 · <button type="button" class="inline-link" id="vl-reset" style="padding:0">Use the call greeting</button></span>
+        </div>
+      </div>
+    </div>
+  </section>
 
-$("call-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const btn = $("call-btn"), result = $("result");
-  const body = Object.fromEntries(new FormData(e.target).entries());
-  btn.disabled = true;
-  result.className = ""; result.textContent = "Requesting call…";
-  try {
-    const resp = await fetch("/start", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
-    result.className = "ok"; result.textContent = `Call queued — the phone should ring shortly (ref ${data.ref_id.slice(0, 8)})`;
-  } catch (err) {
-    result.className = "bad"; result.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-    loadCalls();
-  }
-});
+  <div class="voice-grid" id="voice-grid"></div>
+</main>
 
-async function loadCalls() {
-  let calls;
-  try {
-    const resp = await fetch("/logs");
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    calls = await resp.json();
-  } catch (err) {
-    $("calls").replaceChildren(rowMessage(`Could not load calls: ${err.message}`));
-    return;
-  }
-  if (!calls.length) { $("calls").replaceChildren(rowMessage("No calls yet")); return; }
-  $("calls").replaceChildren(...calls.map((c) => {
-    const tr = el("tr");
-    tr.append(
-      el("td", {}, new Date(c.created_at).toLocaleString()),
-      el("td", {}, c.phone_number || "—"),
-      el("td", {}, c.customer_name),
-    );
-    const status = el("td");
-    status.append(el("span", { class: `pill ${c.status}` }, c.status));
-    if (c.error) status.append(el("div", { class: "err" }, c.error));
-    tr.append(status);
-    tr.addEventListener("click", () => showCall(c.ref_id));
-    return tr;
-  }));
-}
+<!-- ═══ Settings ══════════════════════════════════════════════════════════ -->
+<main class="page" data-page="settings" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Settings</h1>
+      <p>Control when Arjun calls customers and how unanswered calls are retried.</p>
+    </div>
+  </div>
 
-function rowMessage(text) {
-  const tr = el("tr");
-  tr.append(el("td", { colspan: "4", class: "muted" }, text));
-  return tr;
-}
+  <div class="settings-wrap">
+    <div class="tabs settings-tabs" role="tablist">
+      <button type="button" role="tab" id="st-tab-hours" aria-controls="st-hours" aria-selected="true"><svg class="icon"><use href="#i-clock"/></svg>Working hours</button>
+      <button type="button" role="tab" id="st-tab-retry" aria-controls="st-retry" aria-selected="false"><svg class="icon"><use href="#i-retry"/></svg>AI callback</button>
+    </div>
 
-async function showCall(refId) {
-  const resp = await fetch(`/logs/${refId}`);
-  if (!resp.ok) return;
-  const { call, transcript } = await resp.json();
-  $("detail").hidden = false;
-  $("detail-title").textContent = `${call.customer_name} — ${call.phone_number || "unknown number"}`;
-  const body = $("detail-body");
-  body.replaceChildren(el("div", { class: "muted" },
-    `ref ${call.ref_id} · callSid ${call.call_sid || "—"} · ${call.language} · ₹${call.amount} · ${call.billing_period}`));
-  if (call.recording_path) body.append(el("audio", { controls: "", src: `/recordings/${call.ref_id}` }));
-  if (!transcript.length) body.append(el("p", { class: "muted" }, "No transcript."));
-  for (const t of transcript) {
-    const turn = el("div", { class: `turn ${t.role}` });
-    turn.append(el("div", { class: "role" }, t.role === "assistant" ? "Bot" : "Customer"), el("div", {}, t.text));
-    body.append(turn);
-  }
-  $("detail").scrollIntoView({ behavior: "smooth" });
-}
+    <!-- Working hours -->
+    <section role="tabpanel" id="st-hours" aria-labelledby="st-tab-hours">
+      <p class="settings-intro">Set the daily calling window. Bulk calls are only placed within this time slot (IST); calls queued outside it wait for the next window.</p>
+      <div class="card card-body settings-card">
+        <div class="settings-card-head">
+          <span class="settings-eyebrow">Calling window (IST)</span>
+          <button type="button" class="icon-btn" id="st-hours-edit" aria-label="Edit calling window" title="Edit"><svg class="icon"><use href="#i-edit"/></svg></button>
+        </div>
+        <div class="time-row">
+          <div class="field">
+            <label for="st-from">From</label>
+            <div class="control"><input id="st-from" type="time" value="09:00" disabled></div>
+          </div>
+          <div class="field">
+            <label for="st-to">To</label>
+            <div class="control"><input id="st-to" type="time" value="21:00" disabled></div>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Calling days</span>
+          <div class="day-chips" id="st-days" role="group" aria-label="Calling days"></div>
+        </div>
+        <div class="settings-actions" id="st-hours-actions" hidden>
+          <button type="button" class="btn btn-secondary btn-sm" id="st-hours-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" id="st-hours-save">Save window</button>
+        </div>
+      </div>
+      <p class="hint settings-foot">Applies to every bulk upload. Single calls started from the Start calls page are placed immediately.</p>
+    </section>
 
-loadCalls();
-setInterval(loadCalls, 5000);
-</script>
+    <!-- AI callback -->
+    <section role="tabpanel" id="st-retry" aria-labelledby="st-tab-retry" hidden>
+      <p class="settings-intro">When Arjun places an outbound call and the customer doesn't answer, the call can be retried automatically after a delay. Retries respect the calling window.</p>
+      <div class="card card-body settings-card toggle-card">
+        <div>
+          <div class="toggle-title">Enable auto-retry</div>
+          <div class="hint">Automatically retry unanswered calls (no answer, busy, failed).</div>
+        </div>
+        <label class="toggle"><input type="checkbox" role="switch" id="st-retry-on" checked><span class="slider" aria-hidden="true"></span><span class="sr-only">Enable auto-retry</span></label>
+      </div>
+      <div class="card card-body settings-card" id="st-retry-opts">
+        <div class="field">
+          <span class="settings-eyebrow">Wait before retry</span>
+          <div class="inline-fields">
+            <div class="control narrow"><input id="st-wait" type="number" min="1" max="72" value="3" aria-label="Wait before retry"></div>
+            <div class="control narrow"><select id="st-wait-unit" aria-label="Unit"><option value="minutes">Minutes</option><option value="hours" selected>Hours</option></select></div>
+          </div>
+          <div class="hint">How long to wait after a missed call before calling again.</div>
+        </div>
+        <div class="field">
+          <span class="settings-eyebrow">Maximum retry attempts</span>
+          <div class="inline-fields">
+            <div class="control narrow"><input id="st-max" type="number" min="1" max="10" value="3" aria-label="Maximum retry attempts"></div>
+            <span class="muted">attempts (max 10)</span>
+          </div>
+          <div class="hint">Arjun stops retrying after this many attempts and marks the call as unreachable.</div>
+        </div>
+      </div>
+      <div class="notice"><svg class="icon"><use href="#i-clock"/></svg><span>Retries that fall outside the calling window (Settings → Working hours) are moved to the next available slot.</span></div>
+      <button type="button" class="btn btn-primary" id="st-retry-save">Save settings</button>
+    </section>
+  </div>
+</main>
+</div>
+</div>
+
+<!-- ═══ Shared ════════════════════════════════════════════════════════════ -->
+<div class="backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-name" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-title"><h2 id="d-name">Call</h2><div class="cust-num" id="d-num"></div></div>
+    <span id="d-status"></span>
+    <button class="btn-icon" id="d-close" type="button" aria-label="Close call details"><svg class="icon"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="drawer-body" id="d-body"></div>
+</aside>
+
+<dialog class="confirm" id="confirm">
+  <form method="dialog">
+    <div class="confirm-body"><h2 id="confirm-title"></h2><p id="confirm-text"></p></div>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" value="cancel">Cancel</button>
+      <button class="btn btn-primary" value="ok" id="confirm-ok">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
 </body>
 </html>

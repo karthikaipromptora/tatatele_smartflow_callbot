@@ -7,51 +7,129 @@ DEFAULT_CONTEXT = {
     "billing_period": "March 2026",
     "language":       "English",
     "voice_id":       "shubh",
+    "call_type":      "overdue",   # "overdue" (collection) or "predue" (friendly reminder)
+    "account_number": "",
+    "invoice_number": "",
+    "due_date":       "",          # e.g. "20 September 2026"
+    "days_overdue":   "",          # days past the due date; negative = days until due
+    "amount_paid":    "",          # amount already received against this invoice
+    "email_domain":   "",          # domain of the email the invoice was sent to
 }
+
+
+def _is_predue(ctx: dict) -> bool:
+    return ctx.get("call_type") == "predue"
 
 
 def build_greeting(ctx: dict) -> str:
     service_name = ctx["service_name"]
-    greetings = {
-        "English": (
-            f"Hi, this is {AGENT_NAME} from Tata Tele services regarding a pending payment for {service_name}. "
-            f"Would you like to continue in English or Hindi?"
-        ),
-        "Hindi": (
-            f"नमस्ते, मैं {AGENT_NAME} बोल रहा हूँ Tata Tele services से, आपके {service_name} के pending payment के बारे में। "
+    if _is_predue(ctx):
+        english = (
+            f"Hi, this is {AGENT_NAME} from Tata Tele Business Services with a quick reminder about an upcoming payment "
+            f"for {service_name}. Would you like to continue in English or Hindi?"
+        )
+        hindi = (
+            f"नमस्ते, मैं {AGENT_NAME} बोल रहा हूँ Tata Tele Business Services से, आपके {service_name} के upcoming payment का एक reminder देने के लिए। "
             f"क्या आप हिंदी में बात करना चाहेंगे या English में?"
-        ),
-    }
-    return greetings.get(ctx["language"], greetings["English"])
+        )
+    else:
+        english = (
+            f"Hi, this is {AGENT_NAME} from Tata Tele Business Services regarding a pending payment for {service_name}. "
+            f"Would you like to continue in English or Hindi?"
+        )
+        hindi = (
+            f"नमस्ते, मैं {AGENT_NAME} बोल रहा हूँ Tata Tele Business Services से, आपके {service_name} के pending payment के बारे में। "
+            f"क्या आप हिंदी में बात करना चाहेंगे या English में?"
+        )
+    return hindi if ctx.get("language") == "Hindi" else english
+
+
+def _days(ctx: dict) -> int | None:
+    try:
+        return int(str(ctx.get("days_overdue", "")).strip())
+    except ValueError:
+        return None
+
+
+def _call_details(ctx: dict) -> str:
+    lines = [
+        f"- Customer: {ctx['customer_name']}",
+        f"- Service: {ctx['service_name']}",
+        f"- Amount due on this invoice: INR {ctx['amount']}",
+        f"- Billing period: {ctx['billing_period']}",
+    ]
+    if ctx.get("account_number"):
+        lines.append(f"- Account number: {ctx['account_number']}")
+    if ctx.get("invoice_number"):
+        lines.append(f"- Invoice number: {ctx['invoice_number']}")
+    if ctx.get("due_date"):
+        lines.append(f"- Payment due date: {ctx['due_date']}")
+    days = _days(ctx)
+    if days is not None:
+        if days > 0:
+            lines.append(f"- Overdue by: {days} days")
+        elif days == 0:
+            lines.append("- Due: today")
+        else:
+            lines.append(f"- Due in: {-days} days")
+    if ctx.get("amount_paid"):
+        lines.append(f"- Already received against this invoice: INR {ctx['amount_paid']} (the amount due above is what remains)")
+    if ctx.get("email_domain"):
+        lines.append(f"- Invoice emailed to: an address at {ctx['email_domain']}")
+    return "\n        ".join(lines)
+
+
+def _purpose(ctx: dict) -> str:
+    amount, customer, service, period = ctx["amount"], ctx["customer_name"], ctx["service_name"], ctx["billing_period"]
+    if _is_predue(ctx):
+        due = f" which is due on {ctx['due_date']}" if ctx.get("due_date") else ""
+        return f"""This is a FRIENDLY REMINDER call, not a collection call. {customer} has an upcoming payment of
+        INR {amount} for {service} for the billing period of {period}{due}. The payment is NOT overdue yet.
+        Your goal is to make sure they are aware of the invoice and confirm they plan to pay by the due date.
+        Do not use words like "pending", "overdue" or "outstanding" for this invoice. Be light, brief and appreciative."""
+    overdue = ""
+    days = _days(ctx)
+    if days and days > 0:
+        overdue = f" The payment was due on {ctx['due_date']} and is now {days} days overdue." if ctx.get("due_date") \
+            else f" The payment is {days} days overdue."
+    return f"""You are following up on a pending payment of INR {amount} from {customer} for {service}
+        for the billing period of {period}.{overdue} The invoice has already been sent to the customer's
+        registered email. Your goal is to get a payment commitment or understand the reason for delay."""
 
 
 def build_system_prompt(ctx: dict) -> str:
-    customer_name  = ctx["customer_name"]
-    amount         = ctx["amount"]
-    billing_period = ctx["billing_period"]
-    service_name   = ctx["service_name"]
-    agent_name     = AGENT_NAME
-
-    return f"""
-        You are {agent_name}, a professional but warm collection agent calling on behalf of a telecom company.
-
-        CALL PURPOSE:
-        You are following up on a pending payment of INR {amount} from {customer_name} for {service_name}
-        for the billing period of {billing_period}. The invoice has already been sent to the customer's
-        registered email. Your goal is to get a payment commitment or understand the reason for delay.
-
-        CALL DETAILS:
-        - Customer Name: {customer_name}
-        - Amount Due: INR {amount}
-        - Service: {service_name}
-        - Billing Period: {billing_period}
-
+    agent_name = AGENT_NAME
+    if _is_predue(ctx):
+        goal = """
+        YOUR GOAL:
+        1. Let the customer know the invoice is coming up for payment and mention the due date.
+        2. Ask whether they expect to pay on time, and note any date they give.
+        3. If any issue (dispute, invoice not received, approval pending) → acknowledge and offer next steps.
+        4. Thank them and close the call politely. Keep it short.
+"""
+    else:
+        goal = """
         YOUR GOAL:
         1. Confirm the payment status with the customer.
         2. If pending → get an expected payment date.
         3. If any issue (dispute, not received invoice, approval pending) → acknowledge and offer next steps.
         4. Always close the call politely.
+"""
 
+    return f"""
+        You are {agent_name}, a professional but warm {"accounts representative" if _is_predue(ctx) else "collection agent"} calling on behalf of Tata Tele Business Services.
+
+        CALL PURPOSE:
+        {_purpose(ctx)}
+
+        CALL DETAILS:
+        {_call_details(ctx)}
+
+        USING THE DETAILS:
+        - Use the invoice number, due date and account number only when they help (for example when the customer asks which invoice or account this is). Read invoice and account numbers digit by digit.
+        - If the customer says they did not receive the invoice and an email domain is listed, confirm it was sent to their address at that domain; never read out a full email address.
+        - If an amount was already received, acknowledge it before asking about the remaining balance.
+        {goal}
         HOW TO HANDLE COMMON SITUATIONS:
 
         Payment is pending / they know about it:

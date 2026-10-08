@@ -61,12 +61,14 @@ async def init_db():
         for column in ("call_type TEXT NOT NULL DEFAULT 'overdue'", "account_number TEXT NOT NULL DEFAULT ''",
                        "invoice_number TEXT NOT NULL DEFAULT ''", "due_date TEXT NOT NULL DEFAULT ''",
                        "days_overdue TEXT NOT NULL DEFAULT ''", "amount_paid TEXT NOT NULL DEFAULT ''",
-                       "email_domain TEXT NOT NULL DEFAULT ''", "source JSONB"):
+                       "email_domain TEXT NOT NULL DEFAULT ''", "initiator_email TEXT NOT NULL DEFAULT ''",
+                       "email_sent_at TIMESTAMPTZ", "source JSONB"):
             await conn.execute(f"ALTER TABLE calls ADD COLUMN IF NOT EXISTS {column}")
         await conn.execute("ALTER TABLE batches ADD COLUMN IF NOT EXISTS call_type TEXT NOT NULL DEFAULT 'overdue'")
         await conn.execute("CREATE INDEX IF NOT EXISTS calls_status_created_idx ON calls (status, created_at)")
         await conn.execute("CREATE INDEX IF NOT EXISTS calls_phone_status_idx ON calls (phone_number, status)")
         await conn.execute("CREATE INDEX IF NOT EXISTS calls_batch_idx ON calls (batch_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS calls_status_email_idx ON calls (status, email_sent_at)")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS transcripts (
                 id          SERIAL PRIMARY KEY,
@@ -82,6 +84,29 @@ async def init_db():
 async def close_db():
     if _pool:
         await _pool.close()
+
+
+async def mark_call_email_sent(ref_id: str):
+    async with _pool.acquire() as conn:
+        await conn.execute("UPDATE calls SET email_sent_at = NOW() WHERE ref_id = $1", ref_id)
+
+
+async def get_pending_email_calls(limit: int = 10) -> list[dict]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT c.*, b.file_name AS batch_file_name
+            FROM calls c
+            LEFT JOIN batches b ON b.batch_id = c.batch_id
+            WHERE c.status = 'completed'
+              AND c.email_sent_at IS NULL
+              AND COALESCE(c.ended_at, c.created_at) > NOW() - INTERVAL '24 hours'
+            ORDER BY COALESCE(c.ended_at, c.created_at) DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+        return [_row(r) for r in rows]
 
 
 def _row(r) -> dict | None:
@@ -101,16 +126,16 @@ _INSERT_CALL = """
     INSERT INTO calls
         (ref_id, phone_number, customer_name, service_name, amount,
          billing_period, language, voice_id, status, batch_id, batch_seq, dialed_at,
-         call_type, account_number, invoice_number, due_date, days_overdue, amount_paid, email_domain, source)
+         call_type, account_number, invoice_number, due_date, days_overdue, amount_paid, email_domain, initiator_email, source)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
             CASE WHEN $9 = 'queued' THEN NULL ELSE NOW() END,
-            $12, $13, $14, $15, $16, $17, $18, $19::jsonb)
+            $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb)
 """
 
 # Call context fields stored on the calls row (and read back when the stream connects).
 CONTEXT_COLUMNS = ("customer_name", "service_name", "amount", "billing_period", "language", "voice_id",
                    "call_type", "account_number", "invoice_number", "due_date", "days_overdue",
-                   "amount_paid", "email_domain")
+                   "amount_paid", "email_domain", "initiator_email")
 
 
 def _call_args(ref_id, phone_number, ctx, status, batch_id=None, batch_seq=None, source=None):
@@ -118,7 +143,8 @@ def _call_args(ref_id, phone_number, ctx, status, batch_id=None, batch_seq=None,
             ctx["billing_period"], ctx.get("language", "English"), ctx["voice_id"], status, batch_id, batch_seq,
             ctx.get("call_type", "overdue"), ctx.get("account_number", ""), ctx.get("invoice_number", ""),
             ctx.get("due_date", ""), str(ctx.get("days_overdue", "")), ctx.get("amount_paid", ""),
-            ctx.get("email_domain", ""), json.dumps(source) if source else None)
+            ctx.get("email_domain", ""), str(ctx.get("initiator_email", "")),
+            json.dumps(source) if source else None)
 
 
 async def insert_call(ref_id: str, phone_number: str, ctx: dict, status: str = "initiated"):

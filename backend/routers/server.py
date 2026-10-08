@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import sys
@@ -21,6 +22,7 @@ from helpers.batch_file import FILTER_COLUMNS, MAX_BYTES, MAX_ROWS, BatchFileErr
 from helpers.bot import run_bot
 from helpers.call_input import normalize_period, parse_date, validate_call
 from helpers.dispatcher import BatchDispatcher, CallRateLimiter, gap_from_env, place_call
+from helpers.email_sender import trigger_call_completed_email
 from helpers.prompts import DEFAULT_CONTEXT
 from helpers.smartflow import ClickToCallError, ClickToCallNotConfigured, read_stream_start
 from helpers.voices import (
@@ -79,6 +81,53 @@ logging.getLogger("uvicorn.access").addFilter(_HidePollingRequests())
 # ── App ────────────────────────────────────────────────────────────────────────
 
 
+_in_flight_emails: set[str] = set()
+
+
+async def _send_auto_email(ref_id: str, call: dict):
+    """Deliver post-call summary & transcript attachment and mark email_sent_at in DB on success."""
+    try:
+        transcript = await db.get_transcript(ref_id)
+        logger.info(
+            f"[{ref_id}] Auto-triggering completion email for customer={call.get('customer_name')} "
+            f"({len(transcript)} turns)"
+        )
+        res = await trigger_call_completed_email(ref_id, transcript, call)
+        if res.get("success"):
+            await db.mark_call_email_sent(ref_id)
+            logger.info(f"[{ref_id}] Auto-completion email delivered to {res.get('recipient')} and marked sent in DB")
+        else:
+            logger.warning(f"[{ref_id}] Auto-completion email delivery failed: {res.get('error')}. Will retry.")
+    except Exception as e:
+        logger.exception(f"[{ref_id}] Unexpected error in post-call email delivery: {e}")
+    finally:
+        _in_flight_emails.discard(ref_id)
+
+
+async def _watch_completed_calls():
+    logger.info("Email completion watcher started (checking for newly completed calls every 2s)")
+    while True:
+        try:
+            pending = await db.get_pending_email_calls(limit=10)
+            for call in pending:
+                ref_id = call["ref_id"]
+                if ref_id in _in_flight_emails:
+                    continue
+                _in_flight_emails.add(ref_id)
+                logger.info(
+                    f"[{ref_id}] Detected completed call without email (customer={call.get('customer_name')}). Dispatching email..."
+                )
+                asyncio.create_task(
+                    _send_auto_email(ref_id, call),
+                    name=f"email-auto-{ref_id}",
+                )
+        except Exception:
+            logger.exception("Error in email completion watcher; retrying in 5s")
+            await asyncio.sleep(5)
+            continue
+        await asyncio.sleep(2)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
@@ -86,7 +135,13 @@ async def lifespan(app: FastAPI):
     app.state.limiter = CallRateLimiter(gap_from_env())
     app.state.dispatcher = BatchDispatcher(app.state.session, app.state.limiter)
     app.state.dispatcher.start()
+    app.state.email_watcher = asyncio.create_task(_watch_completed_calls(), name="email-watcher")
     yield
+    app.state.email_watcher.cancel()
+    try:
+        await app.state.email_watcher
+    except asyncio.CancelledError:
+        pass
     await app.state.dispatcher.stop()
     await app.state.session.close()
     await db.close_db()
@@ -117,6 +172,7 @@ async def config(request: Request) -> dict:
         "batch_max_rows": MAX_ROWS,
         "default_voice": DEFAULT_VOICE,
         "min_amount": MIN_AMOUNT,
+        "default_notification_email": os.getenv("DEFAULT_NOTIFICATION_EMAIL", "tejaabhishek@gmail.com"),
         "filter_labels": {k: label for k, (label, _) in FILTER_COLUMNS.items()},
     }
 
@@ -352,6 +408,15 @@ async def smartflow_stream(websocket: WebSocket):
     await db.mark_call_ended(ref_id, "completed", result.recording_path)
     logger.info(f"[{ref_id}] Stored transcript — {len(result.transcript)} turns")
 
+    # Trigger post-call email notification with transcript summary & attachment
+    call_row = await db.get_call(ref_id) or {**ctx, "ref_id": ref_id, "phone_number": customer_number}
+    if ref_id not in _in_flight_emails:
+        _in_flight_emails.add(ref_id)
+        asyncio.create_task(
+            _send_auto_email(ref_id, call_row),
+            name=f"email-notify-{ref_id}",
+        )
+
 
 # ── Call logs ──────────────────────────────────────────────────────────────────
 
@@ -367,6 +432,67 @@ async def get_log_detail(ref_id: str) -> JSONResponse:
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
     return JSONResponse({"call": call, "transcript": await db.get_transcript(ref_id)})
+
+
+@app.post("/logs/{ref_id}/send-email")
+async def resend_call_email(ref_id: str, request: Request) -> JSONResponse:
+    """Send or re-send the summary & transcript attachment email for this call."""
+    call = await db.get_call(ref_id)
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    body_data = {}
+    try:
+        body_data = await request.json()
+    except Exception:
+        pass
+
+    override_recipient = (body_data.get("recipient_email") or "").strip() or None
+    transcript = await db.get_transcript(ref_id)
+    res = await trigger_call_completed_email(
+        ref_id=ref_id,
+        transcript=transcript,
+        call_details=call,
+        override_recipient=override_recipient,
+    )
+    if res.get("success"):
+        await db.mark_call_email_sent(ref_id)
+    return JSONResponse(res)
+
+
+@app.post("/email/test")
+async def test_email_endpoint(request: Request) -> JSONResponse:
+    """Send a test email with mock call details and transcript to verify Outlook configuration."""
+    body_data = {}
+    try:
+        body_data = await request.json()
+    except Exception:
+        pass
+
+    recipient = (body_data.get("recipient") or os.getenv("DEFAULT_NOTIFICATION_EMAIL", "tejaabhishek@gmail.com")).strip()
+    sample_call = {
+        "customer_name": "Test Customer (Abhishek)",
+        "phone_number": "9290892908",
+        "amount": "10,000",
+        "service_name": "Monthly Telecom Services (Voice, Internet & Business Connectivity)",
+        "billing_period": "September 2026",
+        "initiator_email": recipient,
+    }
+    sample_transcript = [
+        {"role": "assistant", "text": "Hi, this is Arjun from Tata Tele services regarding a pending payment for your telecom services. Would you like to continue in English or Hindi?"},
+        {"role": "user", "text": "Can you continue in English?"},
+        {"role": "assistant", "text": "Sure. Regarding the ten thousand rupees due for your September 2026 services, could you please let me know when we can expect the payment?"},
+        {"role": "user", "text": "I will make the payment in two days."},
+        {"role": "assistant", "text": "Thank you for confirming. I have noted that you will make the payment within the next two days. Have a great day!"},
+    ]
+    test_ref = "test-" + uuid.uuid4().hex[:8]
+    res = await trigger_call_completed_email(
+        ref_id=test_ref,
+        transcript=sample_transcript,
+        call_details=sample_call,
+        override_recipient=recipient,
+    )
+    return JSONResponse(res)
 
 
 @app.get("/recordings/{ref_id}")

@@ -34,7 +34,14 @@
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-retry" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.4-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.4 6.4L3 16"/><path d="M3 21v-5h5"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
-  <symbol id="i-headphones"viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></symbol>
+  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14 9l2 2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.1M6.6 6.6C3.6 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
 </svg>
 
 <div class="shell">
@@ -51,9 +58,16 @@
     <a href="/" data-link><svg class="icon"><use href="#i-phone"/></svg>Start calls</a>
     <a href="/calls" data-link><svg class="icon"><use href="#i-list"/></svg>Call logs</a>
     <a href="/voices" data-link><svg class="icon"><use href="#i-mic"/></svg>Voice library</a>
-    <a href="/settings" data-link><svg class="icon"><use href="#i-settings"/></svg>Settings</a>
+    <span class="nav-label admin-only" hidden>Admin</span>
+    <a href="/users" data-link class="admin-only" hidden><svg class="icon"><use href="#i-users"/></svg>Users</a>
+    <a href="/settings" data-link class="admin-only" hidden><svg class="icon"><use href="#i-settings"/></svg>Settings</a>
   </nav>
   <div class="sidebar-foot">
+    <div class="me" id="me" hidden>
+      <span class="avatar" id="me-avatar" aria-hidden="true"></span>
+      <span class="me-text"><span class="me-email" id="me-email"></span><span class="me-role" id="me-role"></span></span>
+      <button type="button" class="btn-icon" id="logout" title="Sign out" aria-label="Sign out"><svg class="icon"><use href="#i-logout"/></svg></button>
+    </div>
     <span class="health" id="health" data-state="unknown" role="status">
       <span class="dot" aria-hidden="true"></span><span class="health-text" id="health-text">Checking service…</span>
     </span>
@@ -150,7 +164,6 @@
           <button class="btn btn-primary btn-block" type="submit" id="call-btn">
             <svg class="icon"><use href="#i-phone"/></svg><span id="call-btn-text">Call customer</span>
           </button>
-          <div class="form-note">The call is placed from the Smartflo caller ID configured for this account.</div>
         </form>
       </div>
 
@@ -265,7 +278,7 @@
   <div class="page-head">
     <div>
       <h1>Call logs</h1>
-      <p>Every call with its outcome, recording and transcript.</p>
+      <p id="calls-sub">Every call you started, with its outcome, recording and transcript.</p>
     </div>
   </div>
 
@@ -280,6 +293,10 @@
     <div class="toolbar">
       <h2 id="calls-title">All calls</h2>
       <span class="updated" id="updated"></span>
+      <div class="control batch-select admin-only" hidden>
+        <label class="sr-only" for="user-filter">Filter by user</label>
+        <select id="user-filter"><option value="">Everyone</option></select>
+      </div>
       <div class="control batch-select">
         <label class="sr-only" for="batch-filter">Filter by upload</label>
         <select id="batch-filter"><option value="">All calls</option></select>
@@ -296,7 +313,7 @@
     <div id="banner"></div>
     <div class="table-wrap">
       <table class="calls-table">
-        <thead><tr><th scope="col">Customer</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Time</th></tr></thead>
+        <thead><tr><th scope="col">Customer</th><th scope="col" class="admin-only" hidden>Initiated by</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Time</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -342,6 +359,61 @@
   </section>
 
   <div class="voice-grid" id="voice-grid"></div>
+</main>
+
+<!-- ═══ Users (admin) ═════════════════════════════════════════════════════ -->
+<main class="page" data-page="users" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Users</h1>
+      <p>Create accounts for your team. Each user sees only the calls they start, and gets the call summary emails at the address you set here.</p>
+    </div>
+  </div>
+
+  <div class="users-grid">
+    <section class="card" aria-labelledby="nu-title">
+      <div class="card-head"><h2 id="nu-title">Add a user</h2></div>
+      <div class="card-body">
+        <form id="new-user" class="form" novalidate autocomplete="off">
+          <div class="field" data-field="email">
+            <label for="nu-email">Email<span class="req" aria-hidden="true">*</span></label>
+            <div class="control"><input id="nu-email" type="email" inputmode="email" autocomplete="off" placeholder="name@gmail.com" maxlength="254" required aria-describedby="nu-email-hint"></div>
+            <div class="hint" id="nu-email-hint">They sign in with this, and call summaries are emailed here.</div>
+          </div>
+          <div class="field" data-field="password">
+            <label for="nu-password">Password<span class="req" aria-hidden="true">*</span></label>
+            <div class="control control-end">
+              <input id="nu-password" type="text" autocomplete="new-password" spellcheck="false" minlength="8" maxlength="200" required aria-describedby="nu-password-hint">
+              <button type="button" class="btn-icon" id="nu-generate" title="Generate a password" aria-label="Generate a password"><svg class="icon"><use href="#i-key"/></svg></button>
+            </div>
+            <div class="hint" id="nu-password-hint">At least 8 characters. Share it with the user securely.</div>
+          </div>
+          <div class="field">
+            <span class="label" id="nu-role-label">Role</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="nu-role-label">
+              <input type="radio" id="nu-role-user" name="nu-role" value="user" checked><label for="nu-role-user">User</label>
+              <input type="radio" id="nu-role-admin" name="nu-role" value="admin"><label for="nu-role-admin">Admin</label>
+            </div>
+            <div class="hint" id="nu-role-hint">Users place calls and see their own calls. Admins also manage users and see every call.</div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit" id="nu-submit"><svg class="icon"><use href="#i-user-plus"/></svg>Create user</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="ul-title">
+      <div class="toolbar">
+        <h2 id="ul-title">All users</h2>
+        <span class="updated" id="ul-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="users-table">
+          <thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Calls</th><th scope="col">Last sign-in</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="user-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </main>
 
 <!-- ═══ Settings ══════════════════════════════════════════════════════════ -->
@@ -442,6 +514,27 @@
     <div class="confirm-actions">
       <button class="btn btn-secondary" value="cancel">Cancel</button>
       <button class="btn btn-primary" value="ok" id="confirm-ok">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="confirm" id="pw-dialog" aria-labelledby="pw-title">
+  <form method="dialog" id="pw-form" novalidate>
+    <div class="confirm-body">
+      <h2 id="pw-title">Reset password</h2>
+      <p id="pw-text"></p>
+      <div class="field" data-field="password">
+        <label for="pw-new">New password</label>
+        <div class="control control-end">
+          <input id="pw-new" type="text" autocomplete="new-password" spellcheck="false" minlength="8" maxlength="200" aria-describedby="pw-hint">
+          <button type="button" class="btn-icon" id="pw-generate" title="Generate a password" aria-label="Generate a password"><svg class="icon"><use href="#i-key"/></svg></button>
+        </div>
+        <div class="hint" id="pw-hint">At least 8 characters. They'll be signed out and must use the new password.</div>
+      </div>
+    </div>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" type="button" id="pw-cancel">Cancel</button>
+      <button class="btn btn-primary" value="ok" id="pw-ok">Reset password</button>
     </div>
   </form>
 </dialog>

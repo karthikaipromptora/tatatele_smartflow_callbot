@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Collection Voice Agent</title>
+<link rel="icon" href="/static/tatatele-logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Ubuntu:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/login.js" defer></script>
+</head>
+<body class="login-body">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.1M6.6 6.6C3.6 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></symbol>
+</svg>
+
+<main class="login-shell">
+  <section class="login-card card" aria-labelledby="login-title">
+    <div class="login-brand">
+      <img src="/static/tatatele-logo.svg" alt="Tata Tele Business Services" width="168" height="40">
+      <span class="login-product">Collection Voice Agent</span>
+    </div>
+    <h1 id="login-title">Sign in</h1>
+    <p class="login-sub">Use the email and password your admin set up for you.</p>
+
+    <div class="login-error" id="login-error" role="alert" hidden><svg class="icon"><use href="#i-alert"/></svg><span id="login-error-text"></span></div>
+
+    <form id="login-form" class="form" novalidate>
+      <div class="field">
+        <label for="email">Email</label>
+        <div class="control"><input id="email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="you@company.com" required autofocus></div>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="control control-end">
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button type="button" class="btn-icon" id="toggle-pw" aria-label="Show password" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" id="login-btn">Sign in</button>
+    </form>
+    <p class="login-foot">Forgot your password? Ask your admin to reset it.</p>
+  </section>
+  <p class="login-legal">Tata Tele Business Services · Smartflo pilot</p>
+</main>
+</body>
+</html>

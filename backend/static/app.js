@@ -137,14 +137,41 @@
     batches: [],
     preview: null,
     openRef: null, lastFocus: null, highlight: null, lastOk: 0,
+    dashStats: null, dashSearch: "", dashUserFilter: "",
+    calYear: 2026, calMonth: 9, calEvents: [],
+    adminOverview: null,
+    tickets: [], ticketStats: null, ticketsSearch: "", ticketsStatusFilter: "", ticketsCatFilter: "", ticketsUserFilter: "", activeResolveTicketId: null,
+    callbacksData: null, cbTypeFilter: "", cbSearch: "", cbUserFilter: "",
   };
   const voiceName = (id) => (state.catalog?.voices.find((v) => v.id === id)?.name) || capital(id);
   const isAdmin = () => state.me?.role === "admin";
 
   // ══ Router ══════════════════════════════════════════════════════════════
-  const ROUTES = { "/": "start", "/calls": "calls", "/voices": "voices", "/users": "users", "/settings": "settings" };
-  const TITLES = { start: "Start calls", calls: "Call logs", voices: "Voice library", users: "Users", settings: "Settings" };
-  const ADMIN_PAGES = new Set(["users", "settings"]);
+  const ROUTES = {
+    "/": "start",
+    "/dashboard": "dashboard",
+    "/calendar": "calendar",
+    "/tickets": "tickets",
+    "/callbacks": "callbacks",
+    "/admin-dashboard": "admin-dashboard",
+    "/calls": "calls",
+    "/voices": "voices",
+    "/users": "users",
+    "/settings": "settings",
+  };
+  const TITLES = {
+    start: "Start calls",
+    dashboard: "Agent Dashboard",
+    calendar: "Follow-up Calendar",
+    tickets: "Tickets & Incidents",
+    callbacks: "Callbacks Scheduled",
+    "admin-dashboard": "Admin Overview",
+    calls: "Call logs",
+    voices: "Voice library",
+    users: "Users",
+    settings: "Settings",
+  };
+  const ADMIN_PAGES = new Set(["admin-dashboard", "users", "settings"]);
 
   function navigate(href) {
     history.pushState(null, "", href);
@@ -171,6 +198,15 @@
       if (ROUTES[a.getAttribute("href")] === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
     document.title = `${TITLES[page]} · Collection Voice Agent`;
+    if (page === "dashboard") {
+      const uParam = new URLSearchParams(location.search).get("user");
+      if (uParam !== null) state.dashUserFilter = uParam;
+      loadAgentStats();
+    }
+    if (page === "calendar") loadCalendar();
+    if (page === "tickets") loadTickets();
+    if (page === "callbacks") loadCallbacks();
+    if (page === "admin-dashboard") loadAdminOverview();
     if (page === "calls") {
       const batch = new URLSearchParams(location.search).get("batch") || "";
       if (batch !== state.batchFilter) { state.batchFilter = batch; state.callsLoaded = false; state.calls = []; }
@@ -874,7 +910,44 @@
       try { await navigator.clipboard.writeText(value); e.target.textContent = "Copied"; setTimeout(() => (e.target.textContent = "Copy"), 1500); } catch { /* clipboard unavailable */ }
     } }, "Copy");
 
-    const sections = [
+    const sections = [];
+
+    // Call Intelligence, Customer Quote, and Commitments
+    if (c.customer_quote || c.commitment_eta || c.summary) {
+      const intelChildren = [];
+      if (c.customer_quote) {
+        intelChildren.push(
+          el("div", { class: "drawer-quote-card" },
+            el("div", { class: "drawer-quote-label" }, "What Customer Said (Highlighted Quote)"),
+            el("div", { class: "drawer-quote-text" }, `“${c.customer_quote}”`))
+        );
+      }
+      if (c.commitment_eta || c.callback_date) {
+        const dateStr = c.callback_date ? new Date(c.callback_date).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" }) : "—";
+        intelChildren.push(
+          el("div", { class: "drawer-eta-card" },
+            el("div", {},
+              el("div", { class: "drawer-eta-title" }, "Commitment ETA"),
+              el("div", { class: "drawer-eta-val" }, c.commitment_eta || "—")),
+            el("div", {},
+              el("div", { class: "drawer-eta-title" }, "Scheduled Callback (Working Day)"),
+              el("div", { class: "drawer-eta-val" }, dateStr)),
+            el("span", { class: `sentiment-badge ${sentimentClass(c.sentiment)}` }, c.sentiment || "Committed"))
+        );
+      }
+      if (c.summary) {
+        intelChildren.push(
+          el("div", { class: "drawer-summary-box" }, el("b", {}, "Call Summary: "), c.summary)
+        );
+      }
+      sections.push(
+        el("section", { class: "drawer-intelligence" },
+          el("div", { class: "section-title" }, "Call Intelligence & Follow-up"),
+          ...intelChildren)
+      );
+    }
+
+    sections.push(
       el("section", {}, el("div", { class: "section-title" }, "Call details"),
         el("dl", { class: "meta" },
           item("Amount due", showAmount(c.amount)), item("Billing period", c.billing_period),
@@ -891,8 +964,8 @@
           c.started_at ? item("Answered", new Date(c.started_at).toLocaleTimeString("en-IN")) : null,
           c.batch_file_name ? item("Upload", c.batch_file_name) : null,
           isAdmin() ? item("Initiated by", c.created_by_email || (c.direction === "inbound" ? "Inbound call" : null)) : null,
-          item("Service", c.service_name, true))),
-    ];
+          item("Service", c.service_name, true)))
+    );
     if (c.error) sections.push(el("div", { class: "error-box", role: "alert" }, c.error));
     sections.push(el("section", {}, el("div", { class: "section-title" }, "Recording"),
       c.recording_path ? el("audio", { controls: true, preload: "metadata", src: `/recordings/${encodeURIComponent(c.ref_id)}` })
@@ -945,6 +1018,799 @@
     if (m && state.openRef !== decodeURIComponent(m[1])) openCall(decodeURIComponent(m[1]));
   }
   window.addEventListener("hashchange", openFromHash);
+
+  // ══ Sentiment helper ══════════════════════════════════════════════════
+  function sentimentClass(s) {
+    const raw = String(s || "").toLowerCase();
+    if (raw.includes("commit")) return "committed";
+    if (raw.includes("callback")) return "callback-requested";
+    if (raw.includes("paid")) return "paid";
+    if (raw.includes("disput")) return "disputed";
+    if (raw.includes("approv")) return "pending-approval";
+    return "other";
+  }
+
+  // ══ Agent Dashboard ═══════════════════════════════════════════════════
+  function selectDashUser(userId) {
+    state.dashUserFilter = userId ? String(userId) : "";
+    const u = new URL(location.href);
+    if (state.dashUserFilter) {
+      u.searchParams.set("user", state.dashUserFilter);
+    } else {
+      u.searchParams.delete("user");
+    }
+    history.replaceState(null, "", u.pathname + u.search);
+    loadAgentStats();
+  }
+
+  async function loadAgentStats() {
+    try {
+      const qs = state.dashUserFilter ? `?user_id=${encodeURIComponent(state.dashUserFilter)}` : "";
+      const stats = await api(`/api/agent/stats${qs}`);
+      state.dashStats = stats;
+      renderAgentDashboard();
+    } catch (err) {
+      toast("Couldn't load dashboard", err.message, "error");
+    }
+  }
+
+  function renderAgentDashboard() {
+    const stats = state.dashStats;
+    if (!stats) return;
+
+    const admin = isAdmin();
+    const userFilterWrap = $("dash-user-filter-wrap");
+    const userSelect = $("dash-user-select");
+    const usersCard = $("dash-users-card");
+    const thAgent = $("dash-th-agent");
+
+    if (thAgent) thAgent.style.display = admin ? "" : "none";
+
+    if (admin) {
+      if (userFilterWrap) userFilterWrap.style.display = "flex";
+      if (usersCard) usersCard.style.display = "";
+
+      // Populate user selector dropdown
+      if (userSelect && stats.users_breakdown) {
+        const currentVal = state.dashUserFilter || "";
+        userSelect.replaceChildren(
+          el("option", { value: "" }, "All Team Members (Company View)"),
+          ...stats.users_breakdown.map((u) =>
+            el("option", { value: String(u.id), selected: String(u.id) === currentVal },
+              `${u.email} (${u.role.toUpperCase()} · ${u.total_calls} calls · ${u.amount_formatted})`
+            )
+          )
+        );
+        userSelect.value = currentVal;
+      }
+
+      // Update subtitle
+      if (stats.selected_user) {
+        $("dash-sub").textContent = `Showing user view for ${stats.selected_user.email} (${stats.selected_user.role.toUpperCase()}) · Assigned portfolio & commitments`;
+      } else {
+        $("dash-sub").textContent = `Company-wide collection operations across all ${stats.users_breakdown?.length || 3} team users. Select a user to drill down.`;
+      }
+
+      // Render Users Breakdown side card
+      const usersList = $("dash-users-list");
+      const usersCount = $("dash-users-count");
+      if (usersCount && stats.users_breakdown) {
+        usersCount.textContent = `${stats.users_breakdown.length} Team Members`;
+      }
+      if (usersList && stats.users_breakdown) {
+        usersList.replaceChildren(
+          ...stats.users_breakdown.map((u) => {
+            const isSelected = String(u.id) === (state.dashUserFilter || "");
+            const initials = (u.email.slice(0, 2) || "AG").toUpperCase();
+            return el("div", {
+              class: `user-breakdown-item ${isSelected ? "selected" : ""}`,
+              onclick: () => selectDashUser(isSelected ? "" : u.id),
+              title: isSelected ? "Click to clear filter and show all" : `Click to view dashboard for ${u.email}`,
+            },
+              el("div", { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:6px" },
+                el("div", { style: "display:flex;align-items:center;gap:8px" },
+                  el("div", { class: "dash-agent-avatar" }, initials),
+                  el("span", { style: "font-weight:600;font-size:13px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: u.email }, u.email)
+                ),
+                el("span", { class: `pill pill-${u.role === "admin" ? "completed" : "active"}`, style: "font-size:10px;padding:1px 6px" }, u.role)
+              ),
+              el("div", { style: "display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:12px;padding-top:6px;border-top:1px dashed #E5E7EB" },
+                el("div", {},
+                  el("div", { class: "muted", style: "font-size:11px" }, "Calls"),
+                  el("div", { style: "font-weight:600" }, `${u.total_calls} (${u.completed_calls} done)`)
+                ),
+                el("div", {},
+                  el("div", { class: "muted", style: "font-size:11px" }, "Amount"),
+                  el("div", { style: "font-weight:600" }, u.amount_formatted)
+                ),
+                el("div", {},
+                  el("div", { class: "muted", style: "font-size:11px" }, "Promised"),
+                  el("div", { style: "font-weight:600;color:#059669" }, u.commitments_count)
+                )
+              )
+            );
+          })
+        );
+      }
+    } else {
+      if (userFilterWrap) userFilterWrap.style.display = "none";
+      if (usersCard) usersCard.style.display = "none";
+      $("dash-sub").textContent = "Personal collection performance, handled call volume, and customer commitments.";
+    }
+
+    $("dash-total-calls").textContent = stats.total_calls;
+    $("dash-calls-sub").textContent = `${stats.completed_calls} completed · ${stats.active_calls} active`;
+    $("dash-total-amount").textContent = stats.total_amount_formatted;
+    $("dash-commitments-count").textContent = stats.commitments_count;
+    $("dash-commitments-amount").textContent = `${stats.commitments_amount_formatted} promised`;
+
+    const topSvc = stats.services[0];
+    $("dash-top-service").textContent = topSvc ? (topSvc.name.length > 28 ? topSvc.name.slice(0, 26) + "…" : topSvc.name) : "—";
+    $("dash-service-sub").textContent = `${stats.services.length} services in portfolio`;
+
+    renderDashCommitments();
+
+    // Services breakdown
+    const svcContainer = $("dash-services-list");
+    if (!stats.services.length) {
+      svcContainer.replaceChildren(el("div", { class: "muted" }, "No services recorded yet."));
+    } else {
+      const maxAmt = Math.max(...stats.services.map((s) => s.amount), 1);
+      svcContainer.replaceChildren(
+        ...stats.services.map((s) => {
+          const pct = Math.max(5, Math.round((s.amount / maxAmt) * 100));
+          return el("div", { class: "service-item" },
+            el("div", { class: "service-item-top" },
+              el("span", { class: "service-item-name", title: s.name }, s.name),
+              el("span", { class: "service-item-amt" }, s.amount_formatted)),
+            el("div", { class: "service-bar-wrap" },
+              el("div", { class: "service-bar-fill", style: `width:${pct}%` })),
+            el("div", { class: "service-item-sub" }, `${s.count} ${plural(s.count, "call")}`));
+        })
+      );
+    }
+  }
+
+  function renderDashCommitments() {
+    const stats = state.dashStats;
+    if (!stats) return;
+    const q = (state.dashSearch || "").toLowerCase().trim();
+    let rows = stats.commitments;
+    if (q) {
+      rows = rows.filter((c) =>
+        (c.customer_name || "").toLowerCase().includes(q) ||
+        (c.service_name || "").toLowerCase().includes(q) ||
+        (c.customer_quote || "").toLowerCase().includes(q) ||
+        (c.commitment_eta || "").toLowerCase().includes(q)
+      );
+    }
+
+    const tbody = $("dash-commitments-rows");
+    const empty = $("dash-commitments-empty");
+    if (!rows.length) {
+      tbody.replaceChildren();
+      empty.replaceChildren(
+        el("div", { class: "state", style: "padding:24px 0" },
+          icon("inbox"),
+          el("h3", {}, q ? "No matching commitments" : "No customer commitments recorded yet"),
+          el("div", {}, q ? "Try another search term." : "When customers make commitments like 'I will pay in 2 days', they are highlighted here."))
+      );
+      return;
+    }
+    empty.replaceChildren();
+
+    tbody.replaceChildren(
+      ...rows.map((c) => {
+        const quoteElem = c.customer_quote
+          ? el("blockquote", { class: "customer-quote-box" }, `“${c.customer_quote}”`)
+          : el("span", { class: "muted" }, "—");
+
+        const dateStr = c.callback_date
+          ? new Date(c.callback_date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+          : null;
+
+        const etaPill = el("div", {},
+          c.commitment_eta ? el("span", { class: "eta-chip" }, icon("clock"), c.commitment_eta) : null,
+          dateStr ? el("span", { class: "date-pill" }, dateStr) : null
+        );
+
+        const agentCell = isAdmin() ? el("td", { class: "dash-agent-cell" },
+          c.created_by_email ? el("div", {
+            class: "dash-agent-badge",
+            style: "cursor:pointer",
+            title: `Filter dashboard to ${c.created_by_email}`,
+            onclick: (e) => {
+              e.stopPropagation();
+              selectDashUser(c.created_by);
+            }
+          },
+            el("span", { class: "dash-agent-avatar" }, (c.created_by_email.slice(0, 2) || "U").toUpperCase()),
+            el("span", { style: "max-width:130px;overflow:hidden;text-overflow:ellipsis" }, c.created_by_email)
+          ) : el("span", { class: "muted" }, "Unassigned")
+        ) : null;
+
+        return el("tr", { tabindex: "0", onclick: () => openCall(c.ref_id) },
+          ...(isAdmin() ? [agentCell] : []),
+          el("td", {},
+            el("div", { class: "cust-name" }, c.customer_name),
+            el("div", { class: "cust-num" }, fmtPhone(c.phone_number))),
+          el("td", { class: "num", style: "font-weight:600" }, c.amount_formatted),
+          el("td", { style: "font-size:13px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis", title: c.service_name }, c.service_name),
+          el("td", {}, quoteElem),
+          el("td", {}, etaPill),
+          el("td", {}, el("span", { class: `sentiment-badge ${sentimentClass(c.sentiment)}` }, c.sentiment || "Committed")),
+          el("td", {},
+            el("button", { class: "btn btn-secondary btn-sm", type: "button", onclick: (e) => { e.stopPropagation(); openCall(c.ref_id); } },
+              icon("eye"), "Details"))
+        );
+      })
+    );
+  }
+
+  // ══ Calendar View ═══════════════════════════════════════════════════════
+  async function loadCalendar() {
+    try {
+      const qs = new URLSearchParams({
+        year: String(state.calYear),
+        month: String(state.calMonth + 1),
+      });
+      state.calEvents = await api(`/api/agent/calendar?${qs}`);
+      renderCalendar();
+    } catch (err) {
+      toast("Couldn't load calendar", err.message, "error");
+    }
+  }
+
+  function renderCalendar() {
+    const y = state.calYear;
+    const m = state.calMonth;
+    const monthDate = new Date(y, m, 1);
+    $("cal-month-title").textContent = monthDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+
+    // Reference today: Friday, 2026-10-09
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    $("cal-today-indicator").textContent = `Reference Today: ${now.toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "short", year: "numeric" })}`;
+
+    const eventsByDate = {};
+    for (const ev of state.calEvents) {
+      if (!ev.callback_date) continue;
+      const dStr = String(ev.callback_date).split("T")[0];
+      if (!eventsByDate[dStr]) eventsByDate[dStr] = [];
+      eventsByDate[dStr].push(ev);
+    }
+
+    // Days calculation (Mon = 0 .. Sun = 6)
+    const firstDayWd = (new Date(y, m, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const daysInPrevMonth = new Date(y, m, 0).getDate();
+    const totalCells = Math.ceil((firstDayWd + daysInMonth) / 7) * 7;
+
+    const grid = $("cal-days-grid");
+    const cells = [];
+
+    for (let i = 0; i < totalCells; i++) {
+      const colWd = i % 7;
+      const isWeekend = colWd >= 5; // Saturday=5, Sunday=6
+
+      let cellYear = y;
+      let cellMonth = m;
+      let dayNum;
+      let isOtherMonth = false;
+
+      if (i < firstDayWd) {
+        isOtherMonth = true;
+        dayNum = daysInPrevMonth - (firstDayWd - i - 1);
+        cellMonth = m - 1;
+        if (cellMonth < 0) { cellMonth = 11; cellYear = y - 1; }
+      } else if (i >= firstDayWd + daysInMonth) {
+        isOtherMonth = true;
+        dayNum = i - (firstDayWd + daysInMonth) + 1;
+        cellMonth = m + 1;
+        if (cellMonth > 11) { cellMonth = 0; cellYear = y + 1; }
+      } else {
+        dayNum = i - firstDayWd + 1;
+      }
+
+      const cellDateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+      const isToday = cellDateStr === todayStr;
+
+      let cellClasses = "cal-day-cell";
+      if (isOtherMonth) cellClasses += " other-month";
+      if (isToday) cellClasses += " today";
+      if (isWeekend) cellClasses += " weekend";
+
+      const header = el("div", { class: "cal-day-header" },
+        el("span", { class: "cal-day-num" }, dayNum),
+        isWeekend ? el("span", { class: "cal-weekend-badge" }, "Non-working") : null
+      );
+
+      const cellContent = [header];
+
+      if (!isWeekend) {
+        // Working days (Mon-Fri) only
+        const dayEvents = eventsByDate[cellDateStr] || [];
+        if (dayEvents.length) {
+          const chips = dayEvents.map((ev) =>
+            el("button", {
+              class: "cal-event-chip",
+              type: "button",
+              title: `${ev.customer_name} (${ev.amount_formatted}): ${ev.commitment_eta || "Callback"}\nQuote: "${ev.customer_quote || ""}"`,
+              onclick: (e) => {
+                e.stopPropagation();
+                openCall(ev.ref_id);
+              },
+            },
+              el("div", { class: "cal-event-cust" }, ev.customer_name),
+              el("div", { class: "cal-event-amt" }, `${ev.amount_formatted} · ${ev.commitment_eta || "Follow-up"}`))
+          );
+          cellContent.push(el("div", { class: "cal-events-wrap" }, ...chips));
+        }
+      }
+
+      const cellElem = el("div", {
+        class: cellClasses,
+        onclick: () => {
+          if (!isWeekend) {
+            const dayEvents = eventsByDate[cellDateStr] || [];
+            if (dayEvents.length) renderDayDetail(cellDateStr, dayEvents);
+          }
+        },
+      }, ...cellContent);
+
+      cells.push(cellElem);
+    }
+
+    grid.replaceChildren(...cells);
+  }
+
+  function renderDayDetail(dateStr, dayEvents) {
+    const card = $("cal-day-detail-card");
+    card.hidden = false;
+    const formattedDate = new Date(dateStr).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    $("cal-day-title").textContent = `Follow-ups on ${formattedDate} (${plural(dayEvents.length, "callback")})`;
+
+    const tbody = $("cal-day-rows");
+    tbody.replaceChildren(
+      ...dayEvents.map((c) =>
+        el("tr", { tabindex: "0", onclick: () => openCall(c.ref_id) },
+          el("td", {}, el("div", { class: "cust-name" }, c.customer_name)),
+          el("td", {}, fmtPhone(c.phone_number)),
+          el("td", { class: "num", style: "font-weight:600" }, c.amount_formatted),
+          el("td", { style: "font-size:13px" }, c.service_name),
+          el("td", {}, c.customer_quote ? el("blockquote", { class: "customer-quote-box" }, `“${c.customer_quote}”`) : "—"),
+          el("td", {}, el("span", { class: "eta-chip" }, icon("clock"), c.commitment_eta || "Callback")),
+          el("td", {}, el("button", { class: "btn btn-secondary btn-sm", onclick: (e) => { e.stopPropagation(); openCall(c.ref_id); } }, icon("eye"), "Details"))
+        )
+      )
+    );
+    card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // ══ Admin Overview ════════════════════════════════════════════════════
+  async function loadAdminOverview() {
+    try {
+      const data = await api("/api/admin/overview");
+      state.adminOverview = data;
+      renderAdminOverview();
+    } catch (err) {
+      toast("Couldn't load admin overview", err.message, "error");
+    }
+  }
+
+  function renderAdminOverview() {
+    const data = state.adminOverview;
+    if (!data) return;
+    const k = data.kpis;
+    $("adm-total-users").textContent = k.total_users;
+    $("adm-total-calls").textContent = k.total_calls;
+    $("adm-calls-sub").textContent = `${k.completed_calls} completed · ${k.failed_calls} failed`;
+    $("adm-total-amount").textContent = k.total_amount_formatted;
+    $("adm-total-commitments").textContent = k.total_commitments;
+    $("adm-commitments-amount").textContent = `${k.commitments_amount_formatted} in pipeline`;
+
+    // Team table
+    const tbody = $("adm-team-rows");
+    tbody.replaceChildren(
+      ...data.team.map((u) => {
+        const nextEtaStr = u.next_callback_date
+          ? new Date(u.next_callback_date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })
+          : "None scheduled";
+
+        return el("tr", {},
+          el("td", {},
+            el("div", { class: "cust-name" }, u.email),
+            el("div", { class: "muted", style: "font-size:12px" }, u.last_login_at ? `Last sign-in: ${relTime(u.last_login_at)}` : "Never signed in")),
+          el("td", {}, el("span", { class: `pill pill-${u.role === "admin" ? "completed" : "active"}` }, u.role)),
+          el("td", { class: "num" }, u.total_calls),
+          el("td", { class: "num" }, u.completed_calls),
+          el("td", { class: "num", style: "font-weight:600" }, u.amount_formatted),
+          el("td", {},
+            el("div", { style: "font-weight:600" }, `${u.commitments_count} commitments`),
+            el("div", { class: "muted", style: "font-size:12px" }, u.commitments_amount_formatted)),
+          el("td", {},
+            u.next_callback_date ? el("span", { class: "eta-chip" }, icon("clock"), nextEtaStr) : el("span", { class: "muted" }, "—")),
+          el("td", { class: "num" }, `${u.services_count} services`),
+          el("td", { style: "display:flex;gap:6px" },
+            u.id ? el("button", { class: "btn btn-secondary btn-sm", onclick: () => { state.dashUserFilter = String(u.id); navigate(`/dashboard?user=${u.id}`); } }, "View Dashboard") : null,
+            u.id ? el("button", { class: "btn btn-secondary btn-sm", onclick: () => { state.userFilter = String(u.id); navigate("/calls"); } }, "View Calls") : null)
+        );
+      })
+    );
+
+    // Company services breakdown
+    const svcContainer = $("adm-services-list");
+    if (!data.services.length) {
+      svcContainer.replaceChildren(el("div", { class: "muted" }, "No services recorded."));
+    } else {
+      const maxAmt = Math.max(...data.services.map((s) => s.amount), 1);
+      svcContainer.replaceChildren(
+        ...data.services.map((s) => {
+          const pct = Math.max(5, Math.round((s.amount / maxAmt) * 100));
+          return el("div", { class: "service-item" },
+            el("div", { class: "service-item-top" },
+              el("span", { class: "service-item-name", title: s.name }, s.name),
+              el("span", { class: "service-item-amt" }, s.amount_formatted)),
+            el("div", { class: "service-bar-wrap" },
+              el("div", { class: "service-bar-fill", style: `width:${pct}%` })),
+            el("div", { class: "service-item-sub" }, `${s.count} calls company-wide`));
+        })
+      );
+    }
+
+    // Recent fleet commitments stream
+    const streamContainer = $("adm-commitments-stream");
+    if (!data.recent_commitments.length) {
+      streamContainer.replaceChildren(el("div", { class: "muted" }, "No commitments recorded yet."));
+    } else {
+      const items = data.recent_commitments.slice(0, 8).map((c) =>
+        el("div", { class: "stream-item", onclick: () => openCall(c.ref_id), style: "cursor:pointer" },
+          el("div", { class: "stream-item-top" },
+            el("span", { style: "font-weight:700" }, c.customer_name),
+            el("span", { class: "stream-item-amt" }, c.amount_formatted)),
+          c.customer_quote ? el("blockquote", { class: "customer-quote-box", style: "max-width:100%" }, `“${c.customer_quote}”`) : null,
+          el("div", { style: "display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:2px" },
+            el("span", { class: "stream-item-agent" }, `By: ${c.created_by_email || "System"}`),
+            c.callback_date ? el("span", { class: "eta-chip" }, icon("clock"), new Date(c.callback_date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })) : null)
+        )
+      );
+      streamContainer.replaceChildren(...items);
+    }
+  }
+
+  // Dashboard & Calendar Event Listeners
+  $("dash-refresh").addEventListener("click", () => loadAgentStats());
+  const dashUserSel = $("dash-user-select");
+  if (dashUserSel) {
+    dashUserSel.addEventListener("change", (e) => selectDashUser(e.target.value));
+  }
+  $("dash-search").addEventListener("input", (e) => {
+    state.dashSearch = e.target.value;
+    renderDashCommitments();
+  });
+  $("cal-prev").addEventListener("click", () => {
+    state.calMonth--;
+    if (state.calMonth < 0) { state.calMonth = 11; state.calYear--; }
+    loadCalendar();
+  });
+  $("cal-next").addEventListener("click", () => {
+    state.calMonth++;
+    if (state.calMonth > 11) { state.calMonth = 0; state.calYear++; }
+    loadCalendar();
+  });
+  $("cal-today").addEventListener("click", () => {
+    const now = new Date();
+    state.calYear = now.getFullYear();
+    state.calMonth = now.getMonth();
+    loadCalendar();
+  });
+  $("cal-day-close").addEventListener("click", () => {
+    $("cal-day-detail-card").hidden = true;
+  });
+  $("admin-dash-refresh").addEventListener("click", () => loadAdminOverview());
+
+  // ══ Tickets & Incidents ═══════════════════════════════════════════════
+  async function loadTickets() {
+    try {
+      const params = new URLSearchParams();
+      if (state.ticketsStatusFilter) params.set("status", state.ticketsStatusFilter);
+      if (state.ticketsCatFilter) params.set("category", state.ticketsCatFilter);
+      if (isAdmin() && state.ticketsUserFilter) params.set("user_id", state.ticketsUserFilter);
+
+      const data = await api(`/api/tickets?${params.toString()}`);
+      state.tickets = data.tickets || [];
+      state.ticketStats = data.stats || null;
+      renderTickets();
+    } catch (err) {
+      toast("Couldn't load tickets", err.message, "error");
+    }
+  }
+
+  function renderTickets() {
+    // Admin user filter dropdown
+    if (isAdmin()) {
+      const wrap = $("tickets-user-filter-wrap");
+      if (wrap) {
+        wrap.style.display = "flex";
+        const sel = $("tickets-user-select");
+        if (sel && sel.options.length <= 1) {
+          sel.replaceChildren(el("option", { value: "" }, "All Assigned Agents"));
+          for (const u of state.users || []) {
+            sel.appendChild(el("option", { value: String(u.id) }, `${u.email} (${u.role})`));
+          }
+          sel.value = state.ticketsUserFilter || "";
+        }
+      }
+    }
+
+    // Stats
+    const s = state.ticketStats;
+    if (s) {
+      $("tck-total").textContent = s.total;
+      $("tck-open").textContent = s.open;
+      $("tck-urgent").textContent = s.urgent;
+      $("tck-resolved").textContent = s.resolved;
+    }
+
+    const q = (state.ticketsSearch || "").toLowerCase().trim();
+    let rows = state.tickets || [];
+    if (q) {
+      rows = rows.filter((t) =>
+        (t.ticket_number || "").toLowerCase().includes(q) ||
+        (t.customer_name || "").toLowerCase().includes(q) ||
+        (t.service_name || "").toLowerCase().includes(q) ||
+        (t.title || "").toLowerCase().includes(q) ||
+        (t.customer_quote || "").toLowerCase().includes(q)
+      );
+    }
+
+    const tbody = $("tickets-rows");
+    const empty = $("tickets-empty");
+    if (!rows.length) {
+      tbody.replaceChildren();
+      empty.replaceChildren(
+        el("div", { class: "state", style: "padding:32px 0" },
+          icon("ticket"),
+          el("h3", {}, q ? "No matching tickets" : "No incident tickets in this view"),
+          el("div", {}, q ? "Try another search filter." : "When customer issues, human callback requests, or complaints occur, tickets are automatically assigned here."))
+      );
+      return;
+    }
+    empty.replaceChildren();
+
+    tbody.replaceChildren(
+      ...rows.map((t) => {
+        const isResolved = t.status === "resolved";
+
+        const catMap = {
+          service_issue: { label: "Service Outage", cls: "badge-cat-service" },
+          human_callback: { label: "Human Callback", cls: "badge-cat-human" },
+          billing_dispute: { label: "Billing Dispute", cls: "badge-cat-dispute" },
+          callback_request: { label: "Callback Request", cls: "badge-cat-callback" },
+        };
+        const catInfo = catMap[t.category] || { label: capital(t.category || "Issue"), cls: "badge-cat-service" };
+
+        const catElem = el("div", { style: "display:flex;flex-direction:column;gap:4px" },
+          el("span", { class: `badge-cat ${catInfo.cls}` }, catInfo.label),
+          el("span", { class: `badge-priority badge-priority-${t.priority || "medium"}` }, capital(t.priority || "medium"))
+        );
+
+        const quoteElem = el("div", {},
+          el("div", { style: "font-weight:600;font-size:13px;margin-bottom:2px" }, t.title),
+          t.customer_quote ? el("blockquote", { class: "customer-quote-box", style: "margin:4px 0 0" }, `“${t.customer_quote}”`) : null,
+          isResolved && t.resolution_notes ? el("div", { class: "muted", style: "font-size:12px;margin-top:4px" }, `Resolution: ${t.resolution_notes}`) : null
+        );
+
+        const assignedElem = t.assigned_to_email
+          ? el("div", { class: "dash-agent-badge" },
+              el("span", { class: "dash-agent-avatar" }, t.assigned_to_email[0]),
+              el("span", {}, t.assigned_to_email.split("@")[0]))
+          : el("span", { class: "muted" }, "Unassigned");
+
+        const statusPill = el("span", { class: `ticket-status-pill ticket-status-${t.status}` },
+          isResolved ? icon("check") : null,
+          capital(t.status.replace("_", " "))
+        );
+
+        const actionElem = isResolved
+          ? el("span", { class: "pill pill-completed", style: "font-size:11px" }, "Completed")
+          : el("button", {
+              class: "btn btn-primary btn-sm",
+              type: "button",
+              onclick: (e) => { e.stopPropagation(); openResolveTicketDialog(t); },
+            }, icon("check"), "Resolve");
+
+        return el("tr", { tabindex: "0", onclick: () => { if (t.call_ref_id) openCall(t.call_ref_id); } },
+          el("td", {}, el("span", { class: "ticket-num" }, t.ticket_number)),
+          el("td", {},
+            el("div", { class: "cust-name" }, t.customer_name || "Customer"),
+            el("div", { class: "cust-num" }, fmtPhone(t.phone_number))),
+          el("td", {}, catElem),
+          el("td", {}, quoteElem),
+          el("td", {}, assignedElem),
+          el("td", {}, statusPill),
+          el("td", { class: "muted", style: "font-size:12px;white-space:nowrap" }, relTime(t.created_at)),
+          el("td", {}, actionElem)
+        );
+      })
+    );
+  }
+
+  function openResolveTicketDialog(ticket) {
+    state.activeResolveTicketId = ticket.id;
+    $("tr-cust-info").textContent = `Ticket ${ticket.ticket_number} · ${ticket.customer_name} (${ticket.service_name || "Service"})`;
+    $("tr-notes").value = "";
+    $("ticket-resolve-dialog").showModal();
+    $("tr-notes").focus();
+  }
+
+  async function submitResolveTicket() {
+    const ticketId = state.activeResolveTicketId;
+    if (!ticketId) return;
+    const notes = $("tr-notes").value.trim();
+    if (!notes) {
+      return toast("Resolution notes required", "Please describe what action was taken to resolve this ticket.", "error");
+    }
+    try {
+      await api(`/api/tickets/${ticketId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resolution_notes: notes }),
+      });
+      $("ticket-resolve-dialog").close();
+      toast("Ticket resolved", "The ticket has been marked completed.");
+      loadTickets();
+    } catch (err) {
+      toast("Failed to resolve ticket", err.message, "error");
+    }
+  }
+
+  // ══ Callbacks Requested ══════════════════════════════════════════════
+  async function loadCallbacks() {
+    try {
+      const params = new URLSearchParams();
+      if (state.cbTypeFilter) params.set("cb_type", state.cbTypeFilter);
+      if (isAdmin() && state.cbUserFilter) params.set("user_id", state.cbUserFilter);
+
+      const data = await api(`/api/callbacks?${params.toString()}`);
+      state.callbacksData = data;
+      renderCallbacks();
+    } catch (err) {
+      toast("Couldn't load callbacks", err.message, "error");
+    }
+  }
+
+  function renderCallbacks() {
+    // Admin user filter dropdown
+    if (isAdmin()) {
+      const wrap = $("cb-user-filter-wrap");
+      if (wrap) {
+        wrap.style.display = "flex";
+        const sel = $("cb-user-select");
+        if (sel && sel.options.length <= 1) {
+          sel.replaceChildren(el("option", { value: "" }, "All Team Members"));
+          for (const u of state.users || []) {
+            sel.appendChild(el("option", { value: String(u.id) }, `${u.email} (${u.role})`));
+          }
+          sel.value = state.cbUserFilter || "";
+        }
+      }
+    }
+
+    const data = state.callbacksData;
+    if (!data) return;
+    const k = data.kpis;
+    $("cb-total").textContent = k.total_callbacks;
+    $("cb-human").textContent = k.human_callbacks;
+    $("cb-auto").textContent = k.auto_callbacks;
+    $("cb-today").textContent = `${k.scheduled_today} today (${k.overdue_count} overdue)`;
+
+    const q = (state.cbSearch || "").toLowerCase().trim();
+    let rows = data.callbacks || [];
+    if (q) {
+      rows = rows.filter((c) =>
+        (c.customer_name || "").toLowerCase().includes(q) ||
+        (c.phone_number || "").includes(q) ||
+        (c.service_name || "").toLowerCase().includes(q) ||
+        (c.customer_quote || "").toLowerCase().includes(q) ||
+        (c.commitment_eta || "").toLowerCase().includes(q)
+      );
+    }
+
+    const tbody = $("callbacks-rows");
+    const empty = $("callbacks-empty");
+    if (!rows.length) {
+      tbody.replaceChildren();
+      empty.replaceChildren(
+        el("div", { class: "state", style: "padding:32px 0" },
+          icon("callback"),
+          el("h3", {}, q ? "No matching callbacks" : "No callbacks scheduled in this view"),
+          el("div", {}, q ? "Try another search filter." : "When customers request a callback or give payment commitments, they are scheduled here."))
+      );
+      return;
+    }
+    empty.replaceChildren();
+
+    tbody.replaceChildren(
+      ...rows.map((c) => {
+        const isHuman = c.callback_type === "human";
+        const typeBadge = el("span", { class: `cb-type-badge cb-type-${c.callback_type}` },
+          icon(isHuman ? "headphones" : "retry"),
+          isHuman ? "Human Callback" : "Auto Bot Reminder"
+        );
+
+        const dateStr = c.callback_date
+          ? new Date(c.callback_date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+          : "—";
+
+        const etaPill = el("div", {},
+          c.commitment_eta ? el("span", { class: "eta-chip" }, icon("clock"), c.commitment_eta) : null,
+          el("div", { style: "font-weight:600;font-size:12px;margin-top:2px" }, dateStr)
+        );
+
+        const assignedElem = c.assigned_to_email
+          ? el("div", { class: "dash-agent-badge" },
+              el("span", { class: "dash-agent-avatar" }, c.assigned_to_email[0]),
+              el("span", {}, c.assigned_to_email.split("@")[0]))
+          : el("span", { class: "muted" }, "System");
+
+        return el("tr", { tabindex: "0", onclick: () => openCall(c.ref_id) },
+          el("td", {},
+            el("div", { class: "cust-name" }, c.customer_name || "Customer"),
+            el("div", { class: "cust-num" }, fmtPhone(c.phone_number))),
+          el("td", { class: "num", style: "font-weight:600" }, c.amount_formatted),
+          el("td", { style: "font-size:13px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis", title: c.service_name }, c.service_name),
+          el("td", {}, typeBadge),
+          el("td", {}, etaPill),
+          el("td", {}, c.customer_quote ? el("blockquote", { class: "customer-quote-box" }, `“${c.customer_quote}”`) : "—"),
+          el("td", {}, assignedElem),
+          el("td", {}, el("span", { class: `pill pill-${c.status === "completed" ? "completed" : "active"}` }, c.status)),
+          el("td", {}, el("button", { class: "btn btn-secondary btn-sm", onclick: (e) => { e.stopPropagation(); openCall(c.ref_id); } }, icon("eye"), "Details"))
+        );
+      })
+    );
+  }
+
+  // Tickets & Callbacks Event Listeners
+  $("tickets-refresh").addEventListener("click", () => loadTickets());
+  $("tickets-search").addEventListener("input", (e) => {
+    state.ticketsSearch = e.target.value;
+    renderTickets();
+  });
+  $("tickets-status-filter").addEventListener("change", (e) => {
+    state.ticketsStatusFilter = e.target.value;
+    loadTickets();
+  });
+  $("tickets-cat-filter").addEventListener("change", (e) => {
+    state.ticketsCatFilter = e.target.value;
+    loadTickets();
+  });
+  const tckUserSel = $("tickets-user-select");
+  if (tckUserSel) {
+    tckUserSel.addEventListener("change", (e) => {
+      state.ticketsUserFilter = e.target.value;
+      loadTickets();
+    });
+  }
+  $("tr-cancel").addEventListener("click", () => $("ticket-resolve-dialog").close());
+  $("tr-submit").addEventListener("click", () => submitResolveTicket());
+
+  $("cb-refresh").addEventListener("click", () => loadCallbacks());
+  $("cb-search").addEventListener("input", (e) => {
+    state.cbSearch = e.target.value;
+    renderCallbacks();
+  });
+  $("cb-type-filter").addEventListener("change", (e) => {
+    state.cbTypeFilter = e.target.value;
+    loadCallbacks();
+  });
+  const cbUserSel = $("cb-user-select");
+  if (cbUserSel) {
+    cbUserSel.addEventListener("change", (e) => {
+      state.cbUserFilter = e.target.value;
+      loadCallbacks();
+    });
+  }
 
   // ══ Voice library ═══════════════════════════════════════════════════════
   const vlText = $("vl-text");

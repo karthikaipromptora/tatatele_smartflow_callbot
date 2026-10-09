@@ -188,7 +188,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # WebSocket, which this HTTP middleware never sees, so Smartflo can always connect.
 
 _PUBLIC_PATHS = {"/health", "/login", "/auth/login"}
-_PAGES = {"/", "/calls", "/voices", "/settings", "/users"}
+_PAGES = {"/", "/dashboard", "/calendar", "/admin-dashboard", "/calls", "/voices", "/settings", "/users", "/tickets", "/callbacks"}
 # 5 wrong passwords per account, and 30 per client IP, per 15 minutes. The IP limit is higher
 # because behind a reverse proxy every user can share one address.
 _email_throttle = auth.LoginThrottle(limit=5)
@@ -368,10 +368,15 @@ async def health() -> dict:
 
 # Dashboard pages share one client-side app.
 @app.get("/")
+@app.get("/dashboard")
+@app.get("/calendar")
+@app.get("/admin-dashboard")
 @app.get("/calls")
 @app.get("/voices")
 @app.get("/settings")
 @app.get("/users")
+@app.get("/tickets")
+@app.get("/callbacks")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
@@ -622,6 +627,13 @@ async def smartflow_stream(websocket: WebSocket):
 
     await db.insert_transcript(ref_id, result.transcript)
     await db.mark_call_ended(ref_id, "completed", result.recording_path)
+    try:
+        from helpers.insights import extract_call_insights
+        insights_data = extract_call_insights(ctx, result.transcript)
+        await db.save_call_insights(ref_id, insights_data)
+        logger.info(f"[{ref_id}] Stored insights: ETA={insights_data.get('commitment_eta')} Date={insights_data.get('callback_date')}")
+    except Exception as e:
+        logger.warning(f"[{ref_id}] Failed to extract insights: {e}")
     logger.info(f"[{ref_id}] Stored transcript — {len(result.transcript)} turns")
 
     websocket.app.state.emailer.wake()  # emails the summary to the user who started the call
@@ -697,3 +709,118 @@ async def get_recording(request: Request, ref_id: str) -> FileResponse:
     if not call.get("recording_path") or not Path(call["recording_path"]).is_file():
         raise HTTPException(status_code=404, detail="Recording not found")
     return FileResponse(call["recording_path"], media_type="audio/wav")
+
+
+# ── Analytics & Follow-ups ─────────────────────────────────────────────────────
+
+
+@app.get("/api/agent/stats")
+async def get_agent_stats_endpoint(request: Request, user_id: int | None = Query(None)) -> JSONResponse:
+    scope = owner_scope(request)
+    target_id = scope if scope is not None else user_id
+    stats = await db.get_agent_stats(target_id)
+    return JSONResponse(stats)
+
+
+@app.get("/api/agent/calendar")
+async def get_calendar_events_endpoint(
+    request: Request,
+    year: int | None = Query(None),
+    month: int | None = Query(None),
+    user_id: int | None = Query(None),
+) -> JSONResponse:
+    scope = owner_scope(request)
+    target_id = scope if scope is not None else user_id
+    events = await db.get_calendar_events(target_id, year, month)
+    return JSONResponse(events)
+
+
+@app.get("/api/admin/overview")
+async def get_admin_overview_endpoint(request: Request) -> JSONResponse:
+    require_admin(request)
+    overview = await db.get_admin_overview()
+    return JSONResponse(overview)
+
+
+# ── Tickets & Incidents ────────────────────────────────────────────────────────
+
+
+@app.get("/api/tickets")
+async def get_tickets_endpoint(
+    request: Request,
+    status: str | None = Query(None),
+    category: str | None = Query(None),
+    user_id: int | None = Query(None),
+) -> JSONResponse:
+    user = current_user(request)
+    # If user is not admin, strictly scoped to their assigned tickets
+    scope = None if user["role"] == "admin" else user["id"]
+    target_user_id = scope if scope is not None else user_id
+
+    tickets = await db.get_tickets(assigned_to=target_user_id, status=status, category=category)
+    stats = await db.get_ticket_stats(assigned_to=target_user_id)
+    return JSONResponse({"tickets": tickets, "stats": stats})
+
+
+@app.post("/api/tickets/{ticket_id}/resolve")
+async def resolve_ticket_endpoint(request: Request, ticket_id: int) -> JSONResponse:
+    user = current_user(request)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    notes = str(data.get("resolution_notes") or "").strip()
+    is_admin = user["role"] == "admin"
+    try:
+        updated = await db.resolve_ticket(ticket_id, notes, user["id"], is_admin=is_admin)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        return JSONResponse(updated)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+
+@app.post("/api/tickets")
+async def create_manual_ticket_endpoint(request: Request) -> JSONResponse:
+    user = current_user(request)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    title = str(data.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    assigned = user["id"] if user["role"] != "admin" else data.get("assigned_to", user["id"])
+    ticket = await db.create_ticket(
+        call_ref_id=data.get("call_ref_id"),
+        customer_name=data.get("customer_name") or "Customer",
+        phone_number=data.get("phone_number") or "",
+        service_name=data.get("service_name") or "",
+        amount=str(data.get("amount") or ""),
+        category=data.get("category") or "service_issue",
+        title=title,
+        description=data.get("description") or "",
+        customer_quote=data.get("customer_quote") or "",
+        priority=data.get("priority") or "medium",
+        assigned_to=assigned,
+    )
+    return JSONResponse(ticket, status_code=201)
+
+
+# ── Callbacks Requested ────────────────────────────────────────────────────────
+
+
+@app.get("/api/callbacks")
+async def get_callbacks_endpoint(
+    request: Request,
+    cb_type: str | None = Query(None),
+    user_id: int | None = Query(None),
+) -> JSONResponse:
+    user = current_user(request)
+    scope = None if user["role"] == "admin" else user["id"]
+    target_user_id = scope if scope is not None else user_id
+
+    data = await db.get_callbacks(owner_id=target_user_id, cb_type=cb_type)
+    return JSONResponse(data)
+
+

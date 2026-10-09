@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Ubuntu:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/app.js" defer></script>
+<link rel="stylesheet" href="/static/app.css?v=3">
+<script src="/static/app.js?v=3" defer></script>
 </head>
 <body>
 
@@ -42,6 +42,12 @@
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.1M6.6 6.6C3.6 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></symbol>
   <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></symbol>
+  <symbol id="i-quote" viewBox="0 0 24 24"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 7 1 8 3 10zm14 0c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 7 1 8 3 10z"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v5a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a3 3 0 0 1 0-6V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M13 5v2M13 11v2M13 17v2"/></symbol>
+  <symbol id="i-callback" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/><path d="m14 4 4 4m0-4-4 4"/></symbol>
 </svg>
 
 <div class="shell">
@@ -55,10 +61,15 @@
   </a>
   <nav class="nav" aria-label="Main">
     <span class="nav-label">Workspace</span>
+    <a href="/dashboard" data-link><svg class="icon"><use href="#i-layout"/></svg>Dashboard</a>
+    <a href="/calendar" data-link><svg class="icon"><use href="#i-calendar"/></svg>Calendar</a>
+    <a href="/tickets" data-link><svg class="icon"><use href="#i-ticket"/></svg>Tickets</a>
+    <a href="/callbacks" data-link><svg class="icon"><use href="#i-callback"/></svg>Callbacks</a>
     <a href="/" data-link><svg class="icon"><use href="#i-phone"/></svg>Start calls</a>
     <a href="/calls" data-link><svg class="icon"><use href="#i-list"/></svg>Call logs</a>
     <a href="/voices" data-link><svg class="icon"><use href="#i-mic"/></svg>Voice library</a>
     <span class="nav-label admin-only" hidden>Admin</span>
+    <a href="/admin-dashboard" data-link class="admin-only" hidden><svg class="icon"><use href="#i-chart"/></svg>Admin Overview</a>
     <a href="/users" data-link class="admin-only" hidden><svg class="icon"><use href="#i-users"/></svg>Users</a>
     <a href="/settings" data-link class="admin-only" hidden><svg class="icon"><use href="#i-settings"/></svg>Settings</a>
   </nav>
@@ -74,6 +85,439 @@
   </div>
 </aside>
 <div class="content">
+
+<!-- ═══ Agent Dashboard ═══════════════════════════════════════════════════ -->
+<main class="page" data-page="dashboard" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Agent Dashboard</h1>
+      <p id="dash-sub">Personal collection performance, handled call volume, and customer commitments.</p>
+    </div>
+    <span class="spacer"></span>
+    <!-- Admin User View Selector -->
+    <div id="dash-user-filter-wrap" style="display:none;align-items:center;gap:8px">
+      <label for="dash-user-select" style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">User View:</label>
+      <select id="dash-user-select" style="font-size:13px;font-weight:500;padding:6px 12px;border-radius:6px;border:1px solid #D1D5DB;background:#FFF;color:#1F2937;cursor:pointer">
+        <option value="">All Team Members (Company View)</option>
+      </select>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="dash-refresh" type="button"><svg class="icon"><use href="#i-refresh"/></svg>Refresh stats</button>
+  </div>
+
+  <section class="kpis" aria-label="Agent KPIs">
+    <div class="card kpi">
+      <span class="kpi-label">Calls Handled</span>
+      <span class="kpi-value" id="dash-total-calls">–</span>
+      <span class="kpi-sub" id="dash-calls-sub">0 completed</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Amount Handled</span>
+      <span class="kpi-value" id="dash-total-amount">₹0</span>
+      <span class="kpi-sub">Total portfolio under collection</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Promised Commitments</span>
+      <span class="kpi-value" id="dash-commitments-count">–</span>
+      <span class="kpi-sub" id="dash-commitments-amount">₹0 committed</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Portfolio Focus</span>
+      <span class="kpi-value" id="dash-top-service">–</span>
+      <span class="kpi-sub" id="dash-service-sub">Primary telecom service</span>
+    </div>
+  </section>
+
+  <!-- Full-width Customer Commitments and Highlighted Quotes -->
+  <section class="card" aria-labelledby="commitments-title" style="width:100%;margin-bottom:24px">
+    <div class="toolbar">
+      <div>
+        <h2 id="commitments-title">Customer Commitments & Follow-up Quotes</h2>
+        <p class="muted" style="margin:2px 0 0;font-size:13px">Direct customer statements and promised payment timelines requiring follow-up.</p>
+      </div>
+      <span class="spacer"></span>
+      <div class="control search" style="width:260px">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <label class="sr-only" for="dash-search">Search commitments</label>
+        <input id="dash-search" type="search" placeholder="Filter customer or service" autocomplete="off">
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="calls-table" id="dash-commitments-table">
+        <thead>
+          <tr>
+            <th scope="col" id="dash-th-agent">Assigned Agent</th>
+            <th scope="col">Customer</th>
+            <th scope="col" class="num">Amount</th>
+            <th scope="col">Service</th>
+            <th scope="col">What Customer Said (Highlighted Quote)</th>
+            <th scope="col">Promised ETA / Callback Date</th>
+            <th scope="col">Status</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody id="dash-commitments-rows"></tbody>
+      </table>
+    </div>
+    <div id="dash-commitments-empty"></div>
+  </section>
+
+  <!-- Secondary Portfolio & Services Grid (Positioned Below Commitments for Full Table Width) -->
+  <div class="dash-bottom-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));gap:24px">
+    <!-- Services Breakdown Card -->
+    <section class="card" aria-labelledby="dash-services-title">
+      <div class="card-head">
+        <h2 id="dash-services-title">Services Breakdown</h2>
+      </div>
+      <div class="card-body">
+        <div id="dash-services-list" class="service-list"></div>
+      </div>
+    </section>
+
+    <!-- Team Portfolio by User Card (Visible for Admins) -->
+    <section class="card" id="dash-users-card" aria-labelledby="dash-users-title" style="display:none">
+      <div class="card-head" style="display:flex;justify-content:space-between;align-items:center">
+        <h2 id="dash-users-title">Team Portfolio by User</h2>
+        <span class="muted" style="font-size:12px" id="dash-users-count">3 Team Members</span>
+      </div>
+      <div class="card-body">
+        <div id="dash-users-list" class="user-breakdown-list"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ═══ Tickets & Incidents ═════════════════════════════════════════════ -->
+<main class="page" data-page="tickets" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Tickets & Incidents</h1>
+      <p id="tickets-sub">Customer service disruptions, human callback requests, and billing disputes requiring action.</p>
+    </div>
+    <span class="spacer"></span>
+    <!-- Admin Filter for Assigned Agent -->
+    <div id="tickets-user-filter-wrap" style="display:none;align-items:center;gap:8px">
+      <label for="tickets-user-select" style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Agent:</label>
+      <select id="tickets-user-select" style="font-size:13px;font-weight:500;padding:6px 12px;border-radius:6px;border:1px solid #D1D5DB;background:#FFF;color:#1F2937;cursor:pointer">
+        <option value="">All Assigned Agents</option>
+      </select>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="tickets-refresh" type="button"><svg class="icon"><use href="#i-refresh"/></svg>Refresh</button>
+  </div>
+
+  <section class="kpis" aria-label="Ticket KPIs">
+    <div class="card kpi">
+      <span class="kpi-label">Total Incidents</span>
+      <span class="kpi-value" id="tck-total">–</span>
+      <span class="kpi-sub">Reported during customer calls</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Open / Action Required</span>
+      <span class="kpi-value" id="tck-open" style="color:var(--ttbs-orange, #E55302)">–</span>
+      <span class="kpi-sub">Awaiting agent resolution</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">High / Urgent Priority</span>
+      <span class="kpi-value" id="tck-urgent" style="color:#DC2626">–</span>
+      <span class="kpi-sub">Outages & human escalations</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Resolved / Closed</span>
+      <span class="kpi-value" id="tck-resolved" style="color:#059669">–</span>
+      <span class="kpi-sub">Marked completed</span>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="tickets-list-title">
+    <div class="toolbar">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 id="tickets-list-title" style="margin:0;font-size:16px">Incident Queue</h2>
+        <div class="control" style="min-width:140px">
+          <label class="sr-only" for="tickets-status-filter">Status</label>
+          <select id="tickets-status-filter">
+            <option value="">All Statuses</option>
+            <option value="open">Open Only</option>
+            <option value="in_progress">In Progress</option>
+            <option value="resolved">Resolved Only</option>
+          </select>
+        </div>
+        <div class="control" style="min-width:160px">
+          <label class="sr-only" for="tickets-cat-filter">Category</label>
+          <select id="tickets-cat-filter">
+            <option value="">All Categories</option>
+            <option value="service_issue">Service Outage / Issue</option>
+            <option value="human_callback">Human Callback</option>
+            <option value="billing_dispute">Billing Dispute</option>
+            <option value="callback_request">General Callback</option>
+          </select>
+        </div>
+      </div>
+      <span class="spacer"></span>
+      <div class="control search" style="width:240px">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <label class="sr-only" for="tickets-search">Search tickets</label>
+        <input id="tickets-search" type="search" placeholder="Filter customer or ticket #" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="calls-table" id="tickets-table">
+        <thead>
+          <tr>
+            <th scope="col">Ticket #</th>
+            <th scope="col">Customer</th>
+            <th scope="col">Category & Priority</th>
+            <th scope="col">What Customer Said (Quote) / Details</th>
+            <th scope="col" id="tck-th-assigned">Assigned Agent</th>
+            <th scope="col">Status</th>
+            <th scope="col">Created</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody id="tickets-rows"></tbody>
+      </table>
+    </div>
+    <div id="tickets-empty"></div>
+  </section>
+</main>
+
+<!-- ═══ Callbacks Scheduled ═════════════════════════════════════════════ -->
+<main class="page" data-page="callbacks" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Callbacks Scheduled</h1>
+      <p id="callbacks-sub">Follow-up callbacks requested by customers, separating human/manual calls from auto-dial reminders.</p>
+    </div>
+    <span class="spacer"></span>
+    <!-- Admin Filter for Assigned Agent -->
+    <div id="cb-user-filter-wrap" style="display:none;align-items:center;gap:8px">
+      <label for="cb-user-select" style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Agent:</label>
+      <select id="cb-user-select" style="font-size:13px;font-weight:500;padding:6px 12px;border-radius:6px;border:1px solid #D1D5DB;background:#FFF;color:#1F2937;cursor:pointer">
+        <option value="">All Team Members</option>
+      </select>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="cb-refresh" type="button"><svg class="icon"><use href="#i-refresh"/></svg>Refresh</button>
+  </div>
+
+  <section class="kpis" aria-label="Callback KPIs">
+    <div class="card kpi">
+      <span class="kpi-label">Total Callbacks</span>
+      <span class="kpi-value" id="cb-total">–</span>
+      <span class="kpi-sub">Across all accounts</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Human / Manual Callbacks</span>
+      <span class="kpi-value" id="cb-human" style="color:var(--ttbs-orange, #E55302)">–</span>
+      <span class="kpi-sub">Customer asked for real agent</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Auto-dial Bot Reminders</span>
+      <span class="kpi-value" id="cb-auto" style="color:var(--ttbs-blue, #0B4A8B)">–</span>
+      <span class="kpi-sub">Automated payment follow-ups</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Due Today / Overdue</span>
+      <span class="kpi-value" id="cb-today">–</span>
+      <span class="kpi-sub">Scheduled for working day</span>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="callbacks-list-title">
+    <div class="toolbar">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 id="callbacks-list-title" style="margin:0;font-size:16px">Scheduled Callback Queue</h2>
+        <div class="control" style="min-width:180px">
+          <label class="sr-only" for="cb-type-filter">Callback Type</label>
+          <select id="cb-type-filter">
+            <option value="">All Callback Types</option>
+            <option value="human">Human / Manual Callbacks Only</option>
+            <option value="auto">Auto-dial Bot Reminders Only</option>
+          </select>
+        </div>
+      </div>
+      <span class="spacer"></span>
+      <div class="control search" style="width:240px">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <label class="sr-only" for="cb-search">Search callbacks</label>
+        <input id="cb-search" type="search" placeholder="Filter customer or service" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="calls-table" id="callbacks-table">
+        <thead>
+          <tr>
+            <th scope="col">Customer</th>
+            <th scope="col" class="num">Amount</th>
+            <th scope="col">Service</th>
+            <th scope="col">Callback Type</th>
+            <th scope="col">Scheduled Date / ETA</th>
+            <th scope="col">What Customer Said (Quote)</th>
+            <th scope="col" id="cb-th-assigned">Assigned Agent</th>
+            <th scope="col">Status</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody id="callbacks-rows"></tbody>
+      </table>
+    </div>
+    <div id="callbacks-empty"></div>
+  </section>
+</main>
+
+<!-- ═══ Follow-up Callback Calendar ═════════════════════════════════════ -->
+<main class="page" data-page="calendar" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Follow-up Callback Calendar</h1>
+      <p>Schedule and review follow-up callbacks strictly aligned to customer requested intervals. Weekends (Sat–Sun) excluded.</p>
+    </div>
+    <span class="spacer"></span>
+    <div class="cal-controls">
+      <button type="button" class="btn btn-secondary btn-sm" id="cal-prev" title="Previous month" aria-label="Previous month"><svg class="icon" style="transform:rotate(180deg)"><use href="#i-arrow"/></svg></button>
+      <span class="cal-current-label" id="cal-month-title">October 2026</span>
+      <button type="button" class="btn btn-secondary btn-sm" id="cal-next" title="Next month" aria-label="Next month"><svg class="icon"><use href="#i-arrow"/></svg></button>
+      <button type="button" class="btn btn-secondary btn-sm" id="cal-today">Today</button>
+    </div>
+  </div>
+
+  <div class="cal-notice">
+    <div class="cal-legend-item">
+      <span class="legend-chip legend-active"></span>
+      <span>Working Day (Callbacks scheduled)</span>
+    </div>
+    <div class="cal-legend-item">
+      <span class="legend-chip legend-weekend"></span>
+      <span>Non-working Day (Sat/Sun · Strictly no calls)</span>
+    </div>
+    <span class="spacer"></span>
+    <span class="muted" id="cal-today-indicator">Reference System Date: Friday, 09 Oct 2026</span>
+  </div>
+
+  <div class="cal-container card">
+    <div class="cal-grid-head">
+      <div>Mon</div>
+      <div>Tue</div>
+      <div>Wed</div>
+      <div>Thu</div>
+      <div>Fri</div>
+      <div class="head-weekend">Sat <span class="nw-tag">Non-working</span></div>
+      <div class="head-weekend">Sun <span class="nw-tag">Non-working</span></div>
+    </div>
+    <div class="cal-grid-days" id="cal-days-grid"></div>
+  </div>
+
+  <!-- Day Detail Inspector Drawer / Section -->
+  <section class="card" id="cal-day-detail-card" style="margin-top:20px" hidden>
+    <div class="card-head">
+      <h2 id="cal-day-title">Callbacks on Date</h2>
+      <span class="spacer"></span>
+      <button type="button" class="btn-icon" id="cal-day-close" aria-label="Close day details"><svg class="icon"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table class="calls-table">
+          <thead>
+            <tr>
+              <th scope="col">Customer</th>
+              <th scope="col">Phone</th>
+              <th scope="col" class="num">Amount</th>
+              <th scope="col">Service</th>
+              <th scope="col">Customer Quote</th>
+              <th scope="col">ETA</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody id="cal-day-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ═══ Admin Overview Dashboard ═════════════════════════════════════════ -->
+<main class="page admin-only" data-page="admin-dashboard" hidden>
+  <div class="page-head">
+    <div>
+      <h1>Admin Overview & Team Performance</h1>
+      <p>Company-wide collection operations, agent workload, expected ETAs, and executive portfolio visibility.</p>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn btn-secondary btn-sm" id="admin-dash-refresh" type="button"><svg class="icon"><use href="#i-refresh"/></svg>Refresh</button>
+  </div>
+
+  <section class="kpis" aria-label="Admin executive KPIs">
+    <div class="card kpi">
+      <span class="kpi-label">Active Team Members</span>
+      <span class="kpi-value" id="adm-total-users">–</span>
+      <span class="kpi-sub">Across all roles</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Total Company Calls</span>
+      <span class="kpi-value" id="adm-total-calls">–</span>
+      <span class="kpi-sub" id="adm-calls-sub">0 completed</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Total Amount Managed</span>
+      <span class="kpi-value" id="adm-total-amount">₹0</span>
+      <span class="kpi-sub">Combined outstanding value</span>
+    </div>
+    <div class="card kpi">
+      <span class="kpi-label">Committed Collections</span>
+      <span class="kpi-value" id="adm-total-commitments">–</span>
+      <span class="kpi-sub" id="adm-commitments-amount">₹0 in pipeline</span>
+    </div>
+  </section>
+
+  <!-- Team Member Matrix -->
+  <section class="card" aria-labelledby="team-matrix-title">
+    <div class="toolbar">
+      <div>
+        <h2 id="team-matrix-title">Team Performance Matrix</h2>
+        <p class="muted" style="margin:2px 0 0;font-size:13px">Calls taken per user, portfolio handled, open commitments, and expected callback ETAs.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="calls-table">
+        <thead>
+          <tr>
+            <th scope="col">Agent / User</th>
+            <th scope="col">Role</th>
+            <th scope="col" class="num">Calls Taken</th>
+            <th scope="col" class="num">Completed</th>
+            <th scope="col" class="num">Amount Handled</th>
+            <th scope="col">Customer Commitments</th>
+            <th scope="col">Earliest Expected ETA</th>
+            <th scope="col">Services</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody id="adm-team-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="dash-grid" style="margin-top:24px">
+    <!-- Company Services Breakdown -->
+    <section class="card" aria-labelledby="adm-services-title">
+      <div class="card-head">
+        <h2 id="adm-services-title">Company Services Portfolio</h2>
+      </div>
+      <div class="card-body">
+        <div id="adm-services-list" class="service-list"></div>
+      </div>
+    </section>
+
+    <!-- Recent Commitments Fleet Stream -->
+    <section class="card" aria-labelledby="adm-commitments-title">
+      <div class="card-head">
+        <h2 id="adm-commitments-title">Recent Commitments Stream</h2>
+      </div>
+      <div class="card-body">
+        <div id="adm-commitments-stream" class="commitments-stream"></div>
+      </div>
+    </section>
+  </div>
+</main>
 
 <!-- ═══ Start calls ═══════════════════════════════════════════════════════ -->
 <main class="page" data-page="start" hidden>
@@ -535,6 +979,26 @@
     <div class="confirm-actions">
       <button class="btn btn-secondary" type="button" id="pw-cancel">Cancel</button>
       <button class="btn btn-primary" value="ok" id="pw-ok">Reset password</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="confirm" id="ticket-resolve-dialog" aria-labelledby="tr-title">
+  <form method="dialog" id="ticket-resolve-form" novalidate>
+    <div class="confirm-body">
+      <h2 id="tr-title">Resolve Incident Ticket</h2>
+      <p id="tr-cust-info" style="font-size:13px;color:var(--text-muted);margin:4px 0 16px"></p>
+      <div class="field">
+        <label for="tr-notes">Resolution Notes / Action Taken<span class="req" aria-hidden="true">*</span></label>
+        <div class="control">
+          <textarea id="tr-notes" rows="3" placeholder="e.g., Contacted customer directly, resolved service issue, confirmed resolution." required style="width:100%;font-size:13px;font-family:inherit;padding:8px 12px;border:1px solid #D1D5DB;border-radius:6px;box-sizing:border-box"></textarea>
+        </div>
+        <div class="hint">Explain how this incident was resolved. This will be recorded with your timestamp.</div>
+      </div>
+    </div>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" type="button" id="tr-cancel">Cancel</button>
+      <button class="btn btn-primary" type="button" id="tr-submit">Mark as Resolved</button>
     </div>
   </form>
 </dialog>

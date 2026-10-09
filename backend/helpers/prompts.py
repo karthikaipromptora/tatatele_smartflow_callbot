@@ -1,5 +1,3 @@
-import os
-
 AGENT_NAME = "Arjun"
 
 DEFAULT_CONTEXT = {
@@ -16,7 +14,6 @@ DEFAULT_CONTEXT = {
     "days_overdue":   "",          # days past the due date; negative = days until due
     "amount_paid":    "",          # amount already received against this invoice
     "email_domain":   "",          # domain of the email the invoice was sent to
-    "initiator_email": os.getenv("DEFAULT_NOTIFICATION_EMAIL", "tejaabhishek@gmail.com"),
 }
 
 

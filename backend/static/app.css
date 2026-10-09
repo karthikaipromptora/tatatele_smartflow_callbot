@@ -492,8 +492,8 @@ dialog.confirm::backdrop { background: rgba(0, 47, 81, .38); }
   .toasts { right: 16px; bottom: 16px; }
 }
 @media (max-width: 520px) {
-  .nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; }
-  .nav a { justify-content: center; padding: 9px 4px; font-size: 14px; }
+  .nav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); overflow: visible; }
+  .nav a { justify-content: center; padding: 9px 4px; font-size: 13px; white-space: normal; text-align: center; line-height: 1.2; }
   .nav .icon { display: none; }
   .nav a[aria-current="page"]::before { left: 8px; right: 8px; }
 }
@@ -537,3 +537,78 @@ dialog.confirm::backdrop { background: rgba(0, 47, 81, .38); }
 .notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 16px; margin-bottom: 20px; border-radius: var(--radius); background: var(--queued-bg); border: 1px solid #FBD9B5; color: var(--queued); font-size: 13px; }
 .notice .icon { flex: none; margin-top: 2px; }
 @media (max-width: 520px) { .time-row .field { width: auto; flex: 1; } .settings-tabs { display: flex; } }
+
+/* ── Signed-in user (sidebar) ── */
+.sidebar-foot { display: grid; gap: 10px; }
+.me { display: flex; align-items: center; gap: 10px; padding: 10px 8px 12px; border-top: 1px solid var(--stroke); min-width: 0; }
+.avatar { flex: none; display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--deep-blue); color: var(--white); font: 700 14px/1 var(--font-head); }
+.me-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.me-email { font-size: 13px; font-weight: 600; color: var(--deep-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-role { font-size: 12px; color: var(--text-2); }
+@media (max-width: 900px) {
+  .sidebar-foot { display: flex; align-items: center; gap: 8px; }
+  .me { padding: 0; border: 0; }
+  .me-text { max-width: 180px; }
+}
+@media (max-width: 720px) { .me-text { display: none; } }
+
+/* ── Users (admin) ── */
+.users-grid { display: grid; grid-template-columns: minmax(290px, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.users-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.users-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-2); padding: 10px 12px; background: var(--grey-02); border-bottom: 1px solid var(--stroke); white-space: nowrap; }
+.users-table td { padding: 14px 12px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
+.users-table th:first-child, .users-table td:first-child { padding-left: 24px; }
+.users-table th:last-child, .users-table td:last-child { padding-right: 24px; }
+.users-table tr:last-child td { border-bottom: 0; }
+.users-table tr.is-disabled .user-cell, .users-table tr.is-disabled .role-pill { opacity: .55; }
+.user-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.user-cell .cust-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
+.user-cell .cust-num { white-space: normal; }
+.you { margin-left: 8px; padding: 1px 7px; border-radius: 4px; background: var(--busy-bg); color: var(--busy); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.role-pill { display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.role-admin { background: #FFF1E3; color: #8A4A0C; }
+.role-user { background: var(--grey-02); color: var(--deep-blue); border: 1px solid var(--stroke); }
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions .btn { vertical-align: middle; }
+.row-actions .btn + .btn { margin-left: 6px; }
+.nav .nav-label + a, .nav a + .nav-label { margin-top: 0; }
+.nav a + .nav-label { margin-top: 16px; }
+/* Admins get an extra user filter: keep the toolbar on one line on desktop. */
+.toolbar:has(.batch-select.admin-only:not([hidden])) .batch-select { width: 190px; }
+.toolbar:has(.batch-select.admin-only:not([hidden])) .search { width: 210px; }
+@media (max-width: 720px) { .toolbar .batch-select, .toolbar .search { width: 100% !important; } }
+.calls-table td.owner { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+@media (max-width: 1100px) { .users-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .users-table thead { display: none; }
+  .users-table, .users-table tbody, .users-table tr, .users-table td { display: block; }
+  .users-table tr { padding: 14px 16px; border-bottom: 1px solid var(--stroke); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+  .users-table td { padding: 0; border: 0; }
+  .users-table td:nth-child(3), .users-table td:nth-child(4) { display: none; }
+  .users-table td.row-actions { grid-column: 1 / -1; text-align: left; }
+  .calls-table td[data-col="owner"] { display: none; }
+}
+
+/* ── Summary email (call drawer) ── */
+.email-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.email-status { font-size: 13px; color: var(--text-2); min-width: 0; overflow-wrap: anywhere; }
+.email-status.ok { color: var(--ok); font-weight: 600; }
+.email-status.bad { color: var(--bad); }
+
+/* ── Sign-in page ── */
+.login-body { min-height: 100vh; background: radial-gradient(1200px 600px at 100% 0%, #FFF1E3 0%, transparent 60%), var(--grey-02); }
+.login-shell { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 20px; padding: 32px 16px; }
+.login-card { position: relative; width: min(420px, 100%); padding: 36px 36px 28px; overflow: hidden; }
+.login-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--gradient); }
+.login-brand { display: grid; gap: 10px; margin-bottom: 28px; }
+.login-brand img { width: 168px; height: auto; }
+.login-product { font: 500 15px/1.2 var(--font-head); color: var(--text-2); }
+.login-card h1 { font-size: 24px; }
+.login-sub { margin: 6px 0 22px; color: var(--text-2); font-size: 14px; }
+.login-card .form { display: grid; gap: 18px; }
+.login-card .btn-block { margin-top: 4px; }
+.login-error { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px; padding: 12px 14px; border-radius: var(--radius); background: var(--bad-bg); color: var(--bad); font-size: 14px; }
+.login-error .icon { margin-top: 1px; }
+.login-foot { margin: 20px 0 0; text-align: center; font-size: 13px; color: var(--text-2); }
+.login-legal { margin: 0; font-size: 12px; color: var(--text-2); }
+@media (max-width: 480px) { .login-card { padding: 28px 20px 22px; } }

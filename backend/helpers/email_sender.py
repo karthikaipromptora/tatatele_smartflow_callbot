@@ -12,12 +12,13 @@ import base64
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 import os
 import re
 import smtplib
 import socket
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -25,9 +26,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 
-# ── Configuration Defaults ───────────────────────────────────────────────────
-
-DEFAULT_RECIPIENT = os.getenv("DEFAULT_NOTIFICATION_EMAIL", "tejaabhishek@gmail.com")
+IST = timezone(timedelta(hours=5, minutes=30))
 
 _token_cache: dict[str, Any] = {
     "access_token": None,
@@ -49,7 +48,6 @@ def get_email_config() -> dict[str, str]:
         "client_id": os.getenv("OUTLOOK_CLIENT_ID", "").strip(),
         "client_secret": os.getenv("OUTLOOK_CLIENT_SECRET", "").strip(),
         "sender_email": os.getenv("OUTLOOK_SENDER_EMAIL", "").strip(),
-        "default_recipient": os.getenv("DEFAULT_NOTIFICATION_EMAIL", "tejaabhishek@gmail.com").strip(),
         # SMTP fallback optional config
         "smtp_host": os.getenv("SMTP_HOST", "").strip(),
         "smtp_port": os.getenv("SMTP_PORT", "587").strip(),
@@ -68,32 +66,30 @@ def is_smtp_configured() -> bool:
     return bool(cfg["smtp_host"] and cfg["smtp_user"] and cfg["smtp_password"])
 
 
+def is_email_configured() -> bool:
+    return is_outlook_configured() or is_smtp_configured()
+
+
+def _ended_at_ist(call_details: dict) -> datetime:
+    """When the call ended, in IST (falls back to now for calls without an end time)."""
+    raw = call_details.get("ended_at")
+    try:
+        when = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        when = None
+    if not isinstance(when, datetime):
+        when = datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(IST)
+
+
 # ── Microsoft Graph OAuth2 ────────────────────────────────────────────────────
 
 
-async def get_graph_access_token(
-    session_or_tenant: aiohttp.ClientSession | str,
-    tenant_id: str | None = None,
-    client_id: str | None = None,
-    client_secret: str | None = None,
-) -> str:
-    """Acquire Microsoft Graph OAuth2 token using client credentials grant.
-
-    Supports:
-      - get_graph_access_token(tenant_id, client_id, client_secret)
-      - get_graph_access_token(session, tenant_id, client_id, client_secret)
-    Thread-safe and coroutine-safe with asyncio.Lock and forced IPv4.
-    """
-    global _token_cache
-
-    if isinstance(session_or_tenant, str):
-        actual_tenant = session_or_tenant
-        actual_client_id = tenant_id or ""
-        actual_secret = client_id or ""
-    else:
-        actual_tenant = tenant_id or ""
-        actual_client_id = client_id or ""
-        actual_secret = client_secret or ""
+async def get_graph_access_token(tenant_id: str, client_id: str, client_secret: str) -> str:
+    """Acquire a Microsoft Graph token (client credentials grant), cached until shortly before expiry."""
+    actual_tenant, actual_client_id, actual_secret = tenant_id, client_id, client_secret
 
     now = time.time()
     if _token_cache["access_token"] and _token_cache["expires_at"] > now + 60:
@@ -242,7 +238,7 @@ def build_transcript_attachment(call_details: dict, transcript: list[dict], ref_
     if call_details.get("batch_file_name"):
         header.append(f"Upload Batch      : {call_details['batch_file_name']}")
     header.extend([
-        f"Call Completed At : {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}",
+        f"Call Completed At : {_ended_at_ist(call_details).strftime('%Y-%m-%d %H:%M:%S IST')}",
         "=" * 72,
         "",
         "CONVERSATION TRANSCRIPT:",
@@ -273,7 +269,8 @@ def build_transcript_attachment(call_details: dict, transcript: list[dict], ref_
 
 def format_summary_html(summary_text: str) -> str:
     """Convert summary text into clean, elegant HTML with zero asterisks."""
-    clean_text = clean_summary_text(summary_text)
+    # LLM output is text, never markup: escape it before wrapping it in HTML.
+    clean_text = escape(clean_summary_text(summary_text), quote=False)
     if not clean_text:
         return ""
 
@@ -334,13 +331,19 @@ def build_email_html(call_details: dict, summary_info: dict, ref_id: str) -> str
     summary_text = summary_info.get("summary", "")
     summary_html = format_summary_html(summary_text)
 
-    phone = call_details.get("phone_number", "")
-    cust_name = call_details.get("customer_name", "Customer")
-    amount = call_details.get("amount", "")
-    service = call_details.get("service_name", "")
-    billing_period = call_details.get("billing_period", "")
-    invoice = call_details.get("invoice_number", "")
-    due_date = call_details.get("due_date", "")
+    # Every value comes from uploaded spreadsheets or the call record: escape all of it.
+    field = lambda key, default="": escape(str(call_details.get(key) or default))
+    phone = field("phone_number")
+    cust_name = field("customer_name", "Customer")
+    amount = field("amount")
+    service = field("service_name")
+    billing_period = field("billing_period")
+    invoice = field("invoice_number")
+    due_date = field("due_date")
+    batch_file_name = field("batch_file_name")
+    recipient = field("initiator_email")
+    ref_id = escape(ref_id)
+    ended_at = _ended_at_ist(call_details).strftime("%d %B %Y, %I:%M %p IST")
     call_type = "Pre-due reminder" if call_details.get("call_type") == "predue" else "Overdue collection"
 
     html = f"""<!DOCTYPE html>
@@ -402,9 +405,9 @@ def build_email_html(call_details: dict, summary_info: dict, ref_id: str) -> str
         <tr><th>Service</th><td>{service}</td></tr>
         {f"<tr><th>Invoice Number</th><td>{invoice}</td></tr>" if invoice else ""}
         {f"<tr><th>Payment Due Date</th><td>{due_date}</td></tr>" if due_date else ""}
-        {f"<tr><th>Upload Batch</th><td>{call_details.get('batch_file_name')}</td></tr>" if call_details.get('batch_file_name') else ""}
+        {f"<tr><th>Upload Batch</th><td>{batch_file_name}</td></tr>" if batch_file_name else ""}
         <tr><th>Call Type</th><td>{call_type}</td></tr>
-        <tr><th>Timestamp</th><td>{datetime.now().strftime('%d %B %Y, %I:%M %p IST')}</td></tr>
+        <tr><th>Call Ended</th><td>{ended_at}</td></tr>
       </table>
 
       <div class="attachment-notice">
@@ -413,7 +416,7 @@ def build_email_html(call_details: dict, summary_info: dict, ref_id: str) -> str
     </div>
 
     <div class="footer">
-      Generated automatically by Tata Tele SmartFlow Callbot for {call_details.get('initiator_email') or DEFAULT_RECIPIENT}
+      Generated automatically by Tata Tele SmartFlow Callbot for {recipient}
     </div>
   </div>
 </body>
@@ -546,7 +549,6 @@ async def trigger_call_completed_email(
     ref_id: str,
     transcript: list[dict],
     call_details: dict,
-    override_recipient: str | None = None,
 ) -> dict:
     """Trigger the automated post-call summary email.
 
@@ -554,16 +556,15 @@ async def trigger_call_completed_email(
     Returns status dict: {'success': bool, 'recipient': str, 'method': str, ...}
     """
     cfg = get_email_config()
-    recipient = (
-        override_recipient
-        or call_details.get("initiator_email")
-        or cfg["default_recipient"]
-        or DEFAULT_RECIPIENT
-    ).strip()
+    # The summary goes to the dashboard user who started the call (set by the server from the
+    # signed-in account). There is deliberately no fallback address.
+    recipient = (call_details.get("initiator_email") or "").strip()
+    if not recipient:
+        return {"success": False, "method": "none", "reason": "This call has no user to email", "ref_id": ref_id}
 
     cust_name = call_details.get("customer_name") or "Customer"
     phone = call_details.get("phone_number") or ""
-    subject = f"Call Summary: {cust_name} ({phone}) — Tata Tele Callbot"
+    subject = re.sub(r"[\r\n]+", " ", f"Call Summary: {cust_name} ({phone}) — Tata Tele Callbot")  # no header injection
 
     logger.info(f"[{ref_id}] Generating post-call summary for email notification to {recipient}...")
 

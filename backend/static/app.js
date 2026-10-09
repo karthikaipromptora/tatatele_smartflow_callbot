@@ -73,6 +73,10 @@
 
   async function api(path, opts) {
     const resp = await fetch(path, opts);
+    if (resp.status === 401) {  // session expired or signed out elsewhere
+      location.replace("/login");
+      throw new Error("Please sign in again");
+    }
     const body = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Request failed (HTTP ${resp.status})`);
     return body;
@@ -123,21 +127,24 @@
 
   // ══ App state ═══════════════════════════════════════════════════════════
   const state = {
+    me: null, users: [],
     page: null,
     config: { call_gap_seconds: 2, batch_max_rows: 500, default_voice: "shubh" },
     catalog: null,
     defaultVoice: store.get("defaultVoice", "shubh"),
     recent: [], recentLoaded: false,
-    calls: [], callsLoaded: false, limit: 100, filter: "all", query: "", batchFilter: "",
+    calls: [], callsLoaded: false, limit: 100, filter: "all", query: "", batchFilter: "", userFilter: "",
     batches: [],
     preview: null,
     openRef: null, lastFocus: null, highlight: null, lastOk: 0,
   };
   const voiceName = (id) => (state.catalog?.voices.find((v) => v.id === id)?.name) || capital(id);
+  const isAdmin = () => state.me?.role === "admin";
 
   // ══ Router ══════════════════════════════════════════════════════════════
-  const ROUTES = { "/": "start", "/calls": "calls", "/voices": "voices", "/settings": "settings" };
-  const TITLES = { start: "Start calls", calls: "Call logs", voices: "Voice library", settings: "Settings" };
+  const ROUTES = { "/": "start", "/calls": "calls", "/voices": "voices", "/users": "users", "/settings": "settings" };
+  const TITLES = { start: "Start calls", calls: "Call logs", voices: "Voice library", users: "Users", settings: "Settings" };
+  const ADMIN_PAGES = new Set(["users", "settings"]);
 
   function navigate(href) {
     history.pushState(null, "", href);
@@ -154,7 +161,8 @@
   window.addEventListener("popstate", route);
 
   function route() {
-    const page = ROUTES[location.pathname] || "start";
+    let page = ROUTES[location.pathname] || "start";
+    if (ADMIN_PAGES.has(page) && !isAdmin()) { history.replaceState(null, "", "/"); page = "start"; }
     const changed = page !== state.page;
     if (page !== "voices") player.stop();
     state.page = page;
@@ -169,6 +177,7 @@
       renderCalls();
     }
     if (page === "voices") renderVoices();
+    if (page === "users") loadUsers();
     if (changed || page === "calls") refresh();
     openFromHash();
   }
@@ -299,7 +308,6 @@
       call_type: form.querySelector('input[name="call_type"]:checked').value,
       invoice_number: $("invoice").value.trim(),
       due_date: $("due").value,
-      initiator_email: state.config.default_notification_email || "tejaabhishek@gmail.com",
     };
     btn.disabled = true; btn.setAttribute("aria-busy", "true");
     btn.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), el("span", {}, "Placing call…"));
@@ -641,7 +649,8 @@
         el("div", { class: "batch-top" },
           el("div", { style: "flex:1;min-width:0" },
             el("div", { class: "batch-name" }, b.file_name),
-            el("div", { class: "batch-time" }, `${headline} · uploaded ${relTime(b.created_at).toLowerCase()}`)),
+            el("div", { class: "batch-time" }, `${headline} · uploaded ${relTime(b.created_at).toLowerCase()}`,
+              isAdmin() && b.created_by_email ? ` by ${b.created_by_email}` : "")),
           el("span", { class: `pill ${pending ? "pill-active" : !b.completed && b.failed ? "pill-failed" : b.cancelled_at ? "pill-cancelled" : "pill-completed"}`,
             title: `${b.completed} of ${b.total} completed` }, `${b.completed}/${b.total}`)),
         batchProgress(b),
@@ -697,7 +706,8 @@
     const qd = digits(q);
     return state.calls.filter((c) =>
       (state.filter === "all" || groupOf(c) === state.filter) &&
-      (!q || (c.customer_name || "").toLowerCase().includes(q) || (qd && digits(c.phone_number).includes(qd))));
+      (!q || (c.customer_name || "").toLowerCase().includes(q) || (qd && digits(c.phone_number).includes(qd)) ||
+        (isAdmin() && (c.created_by_email || "").includes(q))));
   }
 
   function renderKpis() {
@@ -734,7 +744,7 @@
     const empty = $("empty");
     if (!state.callsLoaded) {
       $("rows").replaceChildren(...[1, 2, 3, 4].map(() =>
-        el("tr", {}, ...[160, 70, 80, 50, 90].map((w) => el("td", {}, el("div", { class: "skeleton", style: `width:${w}px` }))))));
+        el("tr", {}, ...(isAdmin() ? [160, 120, 70, 80, 50, 90] : [160, 70, 80, 50, 90]).map((w) => el("td", {}, el("div", { class: "skeleton", style: `width:${w}px` }))))));
       empty.replaceChildren();
       $("load-more").hidden = true;
       return;
@@ -750,6 +760,8 @@
           c.call_type === "predue" ? el("span", { class: "batch-tag", style: "margin-right:4px" }, "Reminder") : null,
           c.invoice_number ? el("span", { class: "batch-tag", style: "margin-right:4px" }, `Inv ${c.invoice_number}`) : null,
           c.batch_file_name && !state.batchFilter ? el("span", { class: "batch-tag", title: `Uploaded in ${c.batch_file_name}` }, c.batch_file_name) : null),
+        isAdmin() ? el("td", { class: "muted owner", dataset: { col: "owner" }, title: c.created_by_email || "" },
+          c.created_by_email || (c.direction === "inbound" ? "Inbound call" : "—")) : null,
         el("td", { class: "num", dataset: { col: "amount" } }, showAmount(c.amount)),
         el("td", { dataset: { col: "status" } }, pill(c)),
         el("td", { class: "num muted", dataset: { col: "duration" } }, dur != null ? fmtSeconds(dur) : "—"),
@@ -764,7 +776,15 @@
     $("load-more").hidden = !(state.calls.length >= state.limit && state.limit < 1000);
   }
 
-  function renderCalls() { renderKpis(); renderChips(); renderBatchFilter(); renderRows(); }
+  function renderUserFilter() {
+    if (!isAdmin()) return;
+    const sel = $("user-filter");
+    sel.replaceChildren(el("option", { value: "" }, "Everyone"),
+      ...state.users.map((u) => el("option", { value: String(u.id) }, u.email)));
+    sel.value = state.userFilter;
+  }
+
+  function renderCalls() { renderKpis(); renderChips(); renderUserFilter(); renderBatchFilter(); renderRows(); }
 
   $("q").addEventListener("input", (e) => { state.query = e.target.value; renderRows(); });
   $("refresh").addEventListener("click", () => { loadCalls(); loadBatches(); });
@@ -772,6 +792,10 @@
     const id = e.target.value;
     history.replaceState(null, "", id ? `/calls?batch=${encodeURIComponent(id)}` : "/calls");
     state.batchFilter = id; state.callsLoaded = false; state.calls = [];
+    renderCalls(); loadCalls();
+  });
+  $("user-filter").addEventListener("change", (e) => {
+    state.userFilter = e.target.value; state.callsLoaded = false; state.calls = [];
     renderCalls(); loadCalls();
   });
   $("load-more").querySelector("button").addEventListener("click", () => { state.limit = Math.min(1000, state.limit + 100); loadCalls(); });
@@ -785,13 +809,13 @@
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const header = ["Time", "Call type", "Customer", "Phone", "Account number", "Invoice number", "Amount", "Already paid", "Billing period",
-      "Due date", "Days overdue", "Service", "Voice", "Status", "Duration (s)", "Region", "Partner", "Upload", "Error", "Reference", "Smartflo call ID"];
+      "Due date", "Days overdue", "Service", "Voice", "Status", "Duration (s)", "Region", "Partner", "Upload", "Initiated by", "Error", "Reference", "Smartflo call ID"];
     const lines = rows.map((c) => [fullTime(callTime(c)), c.call_type === "predue" ? "Pre-due reminder" : "Overdue collection",
       c.customer_name, fmtPhone(c.phone_number), c.account_number || "", c.invoice_number || "", showAmount(c.amount).replace("₹", ""),
       c.amount_paid ? showAmount(c.amount_paid).replace("₹", "") : "", c.billing_period, c.due_date || "", c.days_overdue || "",
       c.service_name, voiceName(c.voice_id), statusLabel(c), durationSeconds(c) ?? "",
       c.source?.REGION || "", c.source?.["Partner Name"] || "",
-      c.batch_file_name || "", c.error || "", c.ref_id, c.call_sid || ""].map(safe).join(","));
+      c.batch_file_name || "", c.created_by_email || "", c.error || "", c.ref_id, c.call_sid || ""].map(safe).join(","));
     const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\r\n")], { type: "text/csv;charset=utf-8" });
     const a = el("a", { href: URL.createObjectURL(blob), download: `call-logs-${new Date().toISOString().slice(0, 10)}.csv` });
     document.body.append(a); a.click(); a.remove();
@@ -866,7 +890,7 @@
           item(c.status === "queued" ? "Queued" : "Dialed", fullTime(callTime(c))),
           c.started_at ? item("Answered", new Date(c.started_at).toLocaleTimeString("en-IN")) : null,
           c.batch_file_name ? item("Upload", c.batch_file_name) : null,
-          item("Report email", c.initiator_email || state.config.default_notification_email || "tejaabhishek@gmail.com"),
+          isAdmin() ? item("Initiated by", c.created_by_email || (c.direction === "inbound" ? "Inbound call" : null)) : null,
           item("Service", c.service_name, true))),
     ];
     if (c.error) sections.push(el("div", { class: "error-box", role: "alert" }, c.error));
@@ -880,56 +904,37 @@
               el("div", { class: "turn-role" }, t.role === "assistant" ? "Arjun (bot)" : "Customer"), t.text)))
         : el("div", { class: "muted" }, live ? "The transcript appears once the call ends." : "No conversation was recorded.")));
 
-    if (c.status === "completed") {
-      const emailTarget = c.initiator_email || state.config.default_notification_email || "tejaabhishek@gmail.com";
-      const isSent = Boolean(c.email_sent_at);
-      const emailStatusText = isSent
-        ? `✓ Automated email sent to ${emailTarget} (${shortTime(c.email_sent_at)})`
-        : `Automated email sending to ${emailTarget}…`;
-
-      const sendEmailBtn = el("button", {
-        class: "btn btn-secondary btn-sm",
-        type: "button",
-        style: "margin-top: 8px",
-        onclick: async (e) => {
-          const btn = e.currentTarget;
-          const origText = btn.textContent;
-          btn.disabled = true;
-          btn.textContent = "Sending email…";
-          try {
-            const res = await api(`/logs/${encodeURIComponent(c.ref_id)}/send-email`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ recipient_email: emailTarget }),
-            });
-            if (res.success) {
-              toast("Email sent", `Summary and transcript sent to ${res.recipient}.`);
-              loadDetail(c.ref_id, true);
-              loadCalls();
-            } else if (res.reason) {
-              toast("Email skipped", res.reason, "error");
-            } else {
-              toast("Email error", res.error || "Failed to send email", "error");
-            }
-          } catch (err) {
-            toast("Email failed", err.message, "error");
-          } finally {
-            btn.disabled = false;
-            btn.textContent = origText;
-          }
-        }
-      }, isSent ? "Re-send email summary & transcript" : "Email summary & transcript");
-
-      sections.push(el("section", {},
-        el("div", { class: "section-title" }, "Email notification"),
-        el("div", { class: isSent ? "hint" : "hint muted", style: isSent ? "color: var(--ok); font-weight: 500" : "" }, emailStatusText),
-        sendEmailBtn));
-    }
+    if (c.status === "completed" && c.initiator_email) sections.push(emailSection(c));
 
     sections.push(el("div", { class: "ids" },
       el("div", {}, "Reference ", el("code", {}, c.ref_id), copyBtn(c.ref_id)),
       c.call_sid ? el("div", {}, "Smartflo call ", el("code", {}, c.call_sid), copyBtn(c.call_sid)) : null));
     $("d-body").replaceChildren(...sections);
+  }
+
+  function emailSection(c) {
+    const to = c.initiator_email;
+    let status, cls = "email-status";
+    if (c.email_sent_at) { status = `Sent to ${to} · ${shortTime(c.email_sent_at)}`; cls += " ok"; }
+    else if (!state.config.email_enabled) status = "Email isn't set up on the server yet, so no summary was sent.";
+    else if (c.email_error) { status = `Not sent yet: ${c.email_error}`; cls += " bad"; }
+    else status = `Sending the summary to ${to}…`;
+
+    const btn = state.config.email_enabled ? el("button", { class: "btn btn-secondary btn-sm", type: "button", onclick: async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true; b.textContent = "Sending…";
+      try {
+        const res = await api(`/logs/${encodeURIComponent(c.ref_id)}/send-email`, { method: "POST" });
+        toast("Email sent", `Summary and transcript sent to ${res.recipient}.`);
+        loadDetail(c.ref_id, true);
+      } catch (err) {
+        toast("Couldn't send the email", err.message, "error");
+        b.disabled = false; b.textContent = c.email_sent_at ? "Send again" : "Send now";
+      }
+    } }, icon("mail"), c.email_sent_at ? "Send again" : "Send now") : null;
+
+    return el("section", {}, el("div", { class: "section-title" }, "Summary email"),
+      el("div", { class: "email-row" }, el("div", { class: cls }, status), btn));
   }
 
   $("d-close").addEventListener("click", () => closeDrawer());
@@ -1063,6 +1068,7 @@
   const loadCalls = () => guarded("calls", async () => {
     const qs = new URLSearchParams({ limit: state.limit });
     if (state.batchFilter) qs.set("batch_id", state.batchFilter);
+    if (state.userFilter && isAdmin()) qs.set("user_id", state.userFilter);
     try {
       state.calls = await api(`/logs?${qs}`);
       state.callsLoaded = true;
@@ -1101,6 +1107,146 @@
       h.dataset.state = "down"; $("health-text").textContent = "Service unreachable";
     }
   }
+
+  // ══ Signed-in user ══════════════════════════════════════════════════════
+  function renderMe() {
+    const me = state.me;
+    $("me").hidden = false;
+    $("me-avatar").textContent = me.email[0].toUpperCase();
+    $("me-email").textContent = me.email; $("me-email").title = me.email;
+    $("me-role").textContent = me.role === "admin" ? "Admin" : "User";
+    document.querySelectorAll(".admin-only").forEach((n) => (n.hidden = me.role !== "admin"));
+    $("calls-sub").textContent = me.role === "admin"
+      ? "Every call by every user, with its outcome, recording and transcript."
+      : "Every call you started, with its outcome, recording and transcript.";
+  }
+
+  $("logout").addEventListener("click", async () => {
+    try { await fetch("/auth/logout", { method: "POST" }); } finally { location.replace("/login"); }
+  });
+
+  // ══ Users (admin) ═══════════════════════════════════════════════════════
+  function generatePassword() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    const bytes = crypto.getRandomValues(new Uint32Array(12));
+    return Array.from(bytes, (n) => chars[n % chars.length]).join("");
+  }
+
+  const loadUsers = () => guarded("users", async () => {
+    if (!isAdmin()) return;
+    try {
+      state.users = await api("/users/list");
+      renderUsers();
+      if (state.page === "calls") renderUserFilter();
+    } catch (err) {
+      if (state.page === "users") toast("Couldn't load users", err.message, "error");
+    }
+  });
+
+  function renderUsers() {
+    $("ul-count").textContent = plural(state.users.length, "account");
+    $("user-rows").replaceChildren(...state.users.map((u) => {
+      const self = u.id === state.me.id;
+      const disabled = Boolean(u.disabled_at);
+      return el("tr", { class: disabled ? "is-disabled" : null },
+        el("td", {},
+          el("div", { class: "user-cell" },
+            el("span", { class: "avatar", "aria-hidden": "true" }, u.email[0].toUpperCase()),
+            el("div", { style: "min-width:0" },
+              el("div", { class: "cust-name", title: u.email }, u.email, self ? el("span", { class: "you" }, "You") : null),
+              el("div", { class: "cust-num", title: u.created_by_email ? `Added by ${u.created_by_email}` : "" },
+                disabled ? `Disabled ${relTime(u.disabled_at).toLowerCase()}` : `Added ${relTime(u.created_at).toLowerCase()}`)))),
+        el("td", {}, el("span", { class: `role-pill role-${u.role}` }, u.role === "admin" ? "Admin" : "User")),
+        el("td", { class: "num" }, u.calls),
+        el("td", { class: "muted" }, u.last_login_at ? relTime(u.last_login_at) : "Never"),
+        el("td", { class: "row-actions" },
+          el("button", { class: "btn btn-secondary btn-sm", type: "button", title: "Reset password", "aria-label": `Reset password for ${u.email}`, onclick: () => resetPassword(u) }, icon("key"), "Reset"),
+          self ? null : el("button", { class: `btn btn-sm ${disabled ? "btn-secondary" : "btn-danger"}`, type: "button", onclick: () => toggleUser(u) },
+            disabled ? "Enable" : "Disable")));
+    }));
+  }
+
+  function fieldError(form, name, message) {
+    const f = form.querySelector(`[data-field="${name}"]`);
+    if (!f) return;
+    const hint = f.querySelector(".hint");
+    if (!hint.dataset.base) hint.dataset.base = hint.textContent;
+    if (message) { f.setAttribute("data-invalid", ""); hint.textContent = message; }
+    else { f.removeAttribute("data-invalid"); hint.textContent = hint.dataset.base; }
+  }
+
+  $("nu-generate").addEventListener("click", () => { $("nu-password").value = generatePassword(); fieldError($("new-user"), "password", ""); });
+  $("nu-email").addEventListener("input", () => fieldError($("new-user"), "email", ""));
+  $("nu-password").addEventListener("input", () => fieldError($("new-user"), "password", ""));
+
+  $("new-user").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const email = $("nu-email").value.trim().toLowerCase(), password = $("nu-password").value;
+    const role = form.querySelector('input[name="nu-role"]:checked').value;
+    const emailBad = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? (email ? "Enter a valid email address" : "Email is required") : "";
+    const pwBad = password.length < 8 ? "Password must be at least 8 characters" : "";
+    fieldError(form, "email", emailBad); fieldError(form, "password", pwBad);
+    if (emailBad || pwBad) { (emailBad ? $("nu-email") : $("nu-password")).focus(); return; }
+
+    const btn = $("nu-submit");
+    btn.disabled = true; btn.setAttribute("aria-busy", "true");
+    try {
+      await api("/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, role }) });
+      toast("User created", `${email} can now sign in with the password you set.`);
+      form.reset();
+      loadUsers();
+    } catch (err) {
+      if (/already exists/i.test(err.message)) { fieldError(form, "email", err.message); $("nu-email").focus(); }
+      else toast("Couldn't create the user", err.message, "error");
+    } finally {
+      btn.disabled = false; btn.removeAttribute("aria-busy");
+    }
+  });
+
+  async function toggleUser(u) {
+    const disabling = !u.disabled_at;
+    if (disabling) {
+      const ok = await confirmDialog({
+        title: `Disable ${u.email}?`,
+        text: "They're signed out immediately and can't sign in until you enable the account again. Their calls stay in the logs.",
+        ok: "Disable", danger: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      await api(`/users/${u.id}/${disabling ? "disable" : "enable"}`, { method: "POST" });
+      toast(disabling ? "User disabled" : "User enabled", u.email);
+    } catch (err) {
+      toast("Couldn't update the user", err.message, "error");
+    }
+    loadUsers();
+  }
+
+  function resetPassword(u) {
+    const dlg = $("pw-dialog"), input = $("pw-new"), form = $("pw-form");
+    $("pw-text").textContent = `Set a new password for ${u.email}.`;
+    input.value = generatePassword();
+    fieldError(form, "password", "");
+    dlg.showModal();
+    input.select();
+    const onSubmit = async (e) => {
+      e.preventDefault();
+      if (input.value.length < 8) { fieldError(form, "password", "Password must be at least 8 characters"); input.focus(); return; }
+      try {
+        await api(`/users/${u.id}/password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: input.value }) });
+        dlg.close();
+        toast("Password reset", `Share the new password with ${u.email}.`);
+      } catch (err) {
+        fieldError(form, "password", err.message);
+      }
+    };
+    form.addEventListener("submit", onSubmit);
+    dlg.addEventListener("close", () => form.removeEventListener("submit", onSubmit), { once: true });
+  }
+  $("pw-cancel").addEventListener("click", () => $("pw-dialog").close());
+  $("pw-generate").addEventListener("click", () => { $("pw-new").value = generatePassword(); $("pw-new").select(); });
+  $("pw-new").addEventListener("input", () => fieldError($("pw-form"), "password", ""));
 
   // ══ Settings (demo UI — values are kept in this browser only) ═══════════
   const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1163,15 +1309,24 @@
   renderHours(false); renderRetry();
 
   // ══ Boot ════════════════════════════════════════════════════════════════
-  selectTab(store.get("startTab", "single"), false);
-  renderRecent(); renderCalls(); renderVoices();
-  updateCallLabel();
-  route();
-  loadConfig();
-  loadCatalog();
-  checkHealth();
-  setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
-  setInterval(() => { if (!document.hidden) checkHealth(); }, 30000);
-  setInterval(renderUpdated, 1000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); checkHealth(); } });
+  (async () => {
+    try {
+      state.me = await api("/auth/me");  // redirects to /login if the session has ended
+    } catch {
+      return;
+    }
+    renderMe();
+    selectTab(store.get("startTab", "single"), false);
+    renderRecent(); renderCalls(); renderVoices();
+    updateCallLabel();
+    await loadConfig();
+    route();
+    loadCatalog();
+    loadUsers();
+    checkHealth();
+    setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
+    setInterval(() => { if (!document.hidden) checkHealth(); }, 30000);
+    setInterval(renderUpdated, 1000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); checkHealth(); } });
+  })();
 })();

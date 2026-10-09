@@ -1137,6 +1137,7 @@
     try {
       state.users = await api("/users/list");
       renderUsers();
+      if (state.page === "users") renderAudit(await api("/users/audit"));
       if (state.page === "calls") renderUserFilter();
     } catch (err) {
       if (state.page === "users") toast("Couldn't load users", err.message, "error");
@@ -1164,6 +1165,13 @@
           self ? null : el("button", { class: `btn btn-sm ${disabled ? "btn-secondary" : "btn-danger"}`, type: "button", onclick: () => toggleUser(u) },
             disabled ? "Enable" : "Disable")));
     }));
+  }
+
+  function renderAudit(rows) {
+    $("audit-rows").replaceChildren(...(rows.length ? rows.map((a) => el("li", {},
+      el("span", { class: "audit-what" }, el("b", {}, a.email), ` · ${a.event}`),
+      el("span", { class: "audit-meta", title: fullTime(a.at) }, `${a.actor.replace(/^admin /, "by ")} · ${relTime(a.at)}`)))
+      : [el("li", { class: "muted" }, "No account changes recorded yet.")]));
   }
 
   function fieldError(form, name, message) {

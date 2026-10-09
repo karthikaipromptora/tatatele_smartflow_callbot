@@ -158,7 +158,7 @@ async def _ensure_admin():
     if problem:
         logger.error(f"Admin account not created: {problem}")
         return
-    await db.create_user(email, await auth.hash_password(password), "admin")
+    await db.create_user(email, await auth.hash_password(password), "admin", None, actor="startup (ADMIN_EMAIL in .env)")
     logger.info(f"Created admin account {email}")
 
 
@@ -302,6 +302,12 @@ async def list_users(request: Request) -> JSONResponse:
     return JSONResponse(await db.list_users())
 
 
+@app.get("/users/audit")
+async def user_audit(request: Request) -> JSONResponse:
+    require_admin(request)
+    return JSONResponse(await db.list_user_audit(30))
+
+
 @app.post("/users")
 async def create_user(request: Request) -> JSONResponse:
     admin = require_admin(request)
@@ -313,7 +319,7 @@ async def create_user(request: Request) -> JSONResponse:
     if problem:
         raise HTTPException(status_code=400, detail=problem)
     try:
-        user = await db.create_user(email, await auth.hash_password(password), role, admin["id"])
+        user = await db.create_user(email, await auth.hash_password(password), role, admin["id"], actor=f"admin {admin['email']}")
     except db.EmailTaken:
         raise HTTPException(status_code=409, detail=f"An account for {email} already exists")
     logger.info(f"{admin['email']} created {role} account {email}")
@@ -333,7 +339,7 @@ async def disable_user(request: Request, user_id: int) -> JSONResponse:
     admin, user = await _target_user(request, user_id)
     if user["id"] == admin["id"]:
         raise HTTPException(status_code=400, detail="You can't disable your own account")
-    await db.set_user_disabled(user_id, True)
+    await db.set_user_disabled(user_id, True, actor=f"admin {admin['email']}")
     logger.info(f"{admin['email']} disabled {user['email']}")
     return JSONResponse(await db.get_user(user_id))
 
@@ -341,7 +347,7 @@ async def disable_user(request: Request, user_id: int) -> JSONResponse:
 @app.post("/users/{user_id}/enable")
 async def enable_user(request: Request, user_id: int) -> JSONResponse:
     admin, user = await _target_user(request, user_id)
-    await db.set_user_disabled(user_id, False)
+    await db.set_user_disabled(user_id, False, actor=f"admin {admin['email']}")
     logger.info(f"{admin['email']} enabled {user['email']}")
     return JSONResponse(await db.get_user(user_id))
 
@@ -353,7 +359,7 @@ async def reset_password(request: Request, user_id: int) -> JSONResponse:
     problem = auth.password_error(password)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
-    await db.set_user_password(user_id, await auth.hash_password(password))
+    await db.set_user_password(user_id, await auth.hash_password(password), actor=f"admin {admin['email']}")
     logger.info(f"{admin['email']} reset the password for {user['email']}")
     return JSONResponse({"ok": True})
 

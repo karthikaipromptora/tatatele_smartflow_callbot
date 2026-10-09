@@ -101,6 +101,7 @@ async def init_db():
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id)")
+        await conn.execute(_USER_GUARD_SQL)
         await conn.execute("DELETE FROM sessions WHERE expires_at < NOW()")
         await conn.execute("ALTER TABLE calls ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)")
         await conn.execute("ALTER TABLE batches ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)")
@@ -426,6 +427,61 @@ async def get_transcript(ref_id: str) -> list[dict]:
 
 _USER_COLUMNS = "id, email, role, created_at, created_by, disabled_at, last_login_at"
 
+# Accounts may only be created or changed by this app. The app tags each account change with
+# the acting admin (app.actor, set per transaction); a change without it — e.g. a password hash
+# edited or copied by hand in a SQL console — is rejected. Every accepted change is audited.
+# (Sign-ins only touch last_login_at and pass through untouched.)
+_USER_GUARD_SQL = """
+CREATE TABLE IF NOT EXISTS user_audit (
+    id       BIGSERIAL PRIMARY KEY,
+    at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id  INTEGER,
+    email    TEXT,
+    event    TEXT NOT NULL,
+    actor    TEXT NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION guard_user_changes() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    actor TEXT := NULLIF(current_setting('app.actor', true), '');
+    ev    TEXT;
+    uid   INTEGER;
+    em    TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        ev := 'created (' || NEW.role || ')'; uid := NEW.id; em := NEW.email;
+    ELSIF TG_OP = 'DELETE' THEN
+        ev := 'deleted'; uid := OLD.id; em := OLD.email;
+    ELSE
+        uid := NEW.id; em := NEW.email;
+        ev := concat_ws(', ',
+            CASE WHEN NEW.password_hash IS DISTINCT FROM OLD.password_hash THEN 'password changed' END,
+            CASE WHEN NEW.email IS DISTINCT FROM OLD.email THEN 'email changed from ' || OLD.email END,
+            CASE WHEN NEW.role IS DISTINCT FROM OLD.role THEN 'role changed to ' || NEW.role END,
+            CASE WHEN NEW.disabled_at IS DISTINCT FROM OLD.disabled_at
+                 THEN CASE WHEN NEW.disabled_at IS NULL THEN 'enabled' ELSE 'disabled' END END);
+        IF ev = '' THEN
+            RETURN NEW;  -- e.g. last_login_at on sign-in
+        END IF;
+    END IF;
+    IF actor IS NULL THEN
+        RAISE EXCEPTION 'Blocked: dashboard accounts can only be changed from the dashboard (% for %)', ev, em
+            USING HINT = 'Sign in as an admin and use the Users page to reset passwords or disable accounts.';
+    END IF;
+    INSERT INTO user_audit (user_id, email, event, actor) VALUES (uid, em, ev, actor);
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;
+
+CREATE OR REPLACE TRIGGER users_guard
+    BEFORE INSERT OR UPDATE OR DELETE ON users
+    FOR EACH ROW EXECUTE FUNCTION guard_user_changes();
+"""
+
+
+async def _as_actor(conn, actor: str):
+    """Tag this transaction's account changes with who made them (see _USER_GUARD_SQL)."""
+    await conn.execute("SELECT set_config('app.actor', $1, true)", actor)
+
 
 class EmailTaken(Exception):
     pass
@@ -436,13 +492,15 @@ async def count_users() -> int:
         return await conn.fetchval("SELECT COUNT(*) FROM users")
 
 
-async def create_user(email: str, password_hash: str, role: str, created_by: int | None = None) -> dict:
+async def create_user(email: str, password_hash: str, role: str, created_by: int | None, actor: str) -> dict:
     async with _pool.acquire() as conn:
         try:
-            return _row(await conn.fetchrow(
-                f"INSERT INTO users (email, password_hash, role, created_by) VALUES ($1, $2, $3, $4) RETURNING {_USER_COLUMNS}",
-                email, password_hash, role, created_by,
-            ))
+            async with conn.transaction():
+                await _as_actor(conn, actor)
+                return _row(await conn.fetchrow(
+                    f"INSERT INTO users (email, password_hash, role, created_by) VALUES ($1, $2, $3, $4) RETURNING {_USER_COLUMNS}",
+                    email, password_hash, role, created_by,
+                ))
         except asyncpg.UniqueViolationError as e:
             raise EmailTaken(email) from e
 
@@ -471,9 +529,10 @@ async def list_users() -> list[dict]:
         return [_row(r) for r in rows]
 
 
-async def set_user_disabled(user_id: int, disabled: bool):
+async def set_user_disabled(user_id: int, disabled: bool, actor: str):
     async with _pool.acquire() as conn:
         async with conn.transaction():
+            await _as_actor(conn, actor)
             await conn.execute(
                 "UPDATE users SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, NOW()) END WHERE id=$1",
                 user_id, disabled,
@@ -482,10 +541,11 @@ async def set_user_disabled(user_id: int, disabled: bool):
                 await conn.execute("DELETE FROM sessions WHERE user_id=$1", user_id)
 
 
-async def set_user_password(user_id: int, password_hash: str):
+async def set_user_password(user_id: int, password_hash: str, actor: str):
     """Changing a password signs the user out everywhere."""
     async with _pool.acquire() as conn:
         async with conn.transaction():
+            await _as_actor(conn, actor)
             await conn.execute("UPDATE users SET password_hash=$2 WHERE id=$1", user_id, password_hash)
             await conn.execute("DELETE FROM sessions WHERE user_id=$1", user_id)
 
@@ -514,3 +574,9 @@ async def get_session_user(token_hash: str) -> dict | None:
 async def delete_session(token_hash: str):
     async with _pool.acquire() as conn:
         await conn.execute("DELETE FROM sessions WHERE token_hash=$1", token_hash)
+
+
+async def list_user_audit(limit: int = 50) -> list[dict]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("SELECT at, email, event, actor FROM user_audit ORDER BY at DESC LIMIT $1", limit)
+        return [_row(r) for r in rows]

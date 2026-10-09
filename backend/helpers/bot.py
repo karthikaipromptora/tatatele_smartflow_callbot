@@ -26,6 +26,7 @@ from pipecat.transports.websocket.fastapi import (
 )
 
 from helpers.prompts import build_greeting, build_system_prompt
+from helpers.receiver_cache import ReceiverResponseCache, ReceiverResponseCacheProcessor
 from helpers.smartflow import StreamStart
 
 SAMPLE_RATE = 8000
@@ -111,9 +112,12 @@ async def run_bot(websocket: WebSocket, start: StreamStart, ctx: dict, ref_id: s
     ]
     context = LLMContext(messages)
 
+    cache = ReceiverResponseCache(ctx)
+    cache_processor = ReceiverResponseCacheProcessor(cache, ref_id)
+
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(user_turn_stop_timeout=0.7),
+        user_params=LLMUserAggregatorParams(user_turn_stop_timeout=0.5),
     )
 
     audiobuffer = AudioBufferProcessor(num_channels=1)
@@ -128,6 +132,7 @@ async def run_bot(websocket: WebSocket, start: StreamStart, ctx: dict, ref_id: s
         stt,
         TranscriptionLogger(),
         user_aggregator,
+        cache_processor,
         llm,
         tts,
         transport.output(),

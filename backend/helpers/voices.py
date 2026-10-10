@@ -36,8 +36,15 @@ class VoicePreviewError(RuntimeError):
     pass
 
 
+_HINDI_SAMPLE = (
+    "नमस्ते, मैं Arjun बोल रहा हूँ Tata Tele Business Services से, आपके pending payment के बारे में। "
+    "क्या अभी बात करने का सही समय है?"
+)
+
+
 def sample_text(language: str) -> str:
-    return build_greeting({**DEFAULT_CONTEXT, "language": language})
+    """Voice-library preview line. Calls are English-only; the Hindi line just lets you hear a voice in Hindi."""
+    return _HINDI_SAMPLE if language == "Hindi" else build_greeting(DEFAULT_CONTEXT)
 
 
 async def preview_audio(session: aiohttp.ClientSession, voice: str, language: str, text: str) -> Path:

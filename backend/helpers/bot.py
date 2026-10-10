@@ -1,3 +1,4 @@
+import asyncio
 import os
 import wave
 from dataclasses import dataclass
@@ -5,7 +6,7 @@ from pathlib import Path
 
 from fastapi import WebSocket
 from loguru import logger
-from pipecat.frames.frames import Frame, TranscriptionFrame, TTSSpeakFrame
+from pipecat.frames.frames import EndTaskFrame, Frame, LLMMessagesAppendFrame, TranscriptionFrame, TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -20,6 +21,7 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -30,6 +32,41 @@ from helpers.smartflow import StreamStart
 
 SAMPLE_RATE = 8000
 RECORDINGS_DIR = Path(__file__).resolve().parent.parent / "recordings"
+
+# Silence handling: after IDLE_SECONDS without the customer speaking, Arjun checks they're still
+# there; after another IDLE_SECONDS (30 s in total) he says goodbye and ends the call.
+IDLE_SECONDS = 15.0
+GOODBYE_GRACE_SECONDS = 8.0  # time for the goodbye to be spoken before hanging up
+
+
+class IdleHandler:
+    def __init__(self):
+        self.retry_count = 0
+
+    def reset(self):
+        self.retry_count = 0
+
+    async def handle_idle(self, task: PipelineTask):
+        self.retry_count += 1
+        if self.retry_count == 1:
+            await task.queue_frames([LLMMessagesAppendFrame(
+                messages=[{
+                    "role": "developer",
+                    "content": "The customer has been silent for a while. In one short sentence, politely ask whether "
+                               "they can hear you, for example: \"Hello, are you still there?\"",
+                }],
+                run_llm=True,
+            )])
+        elif self.retry_count == 2:
+            await task.queue_frames([LLMMessagesAppendFrame(
+                messages=[{
+                    "role": "developer",
+                    "content": "The customer is still not responding. Say a brief, polite goodbye and end the call.",
+                }],
+                run_llm=True,
+            )])
+            await asyncio.sleep(GOODBYE_GRACE_SECONDS)
+            await task.queue_frame(EndTaskFrame())
 
 
 @dataclass
@@ -89,6 +126,7 @@ async def run_bot(websocket: WebSocket, start: StreamStart, ctx: dict, ref_id: s
         api_key=os.getenv("SARVAM_API_KEY", ""),
         settings=SarvamSTTService.Settings(
             model="saarika:v2.5",
+            language=Language.EN_IN,  # calls are English-only
             vad_signals=True,
         ),
     )
@@ -113,7 +151,7 @@ async def run_bot(websocket: WebSocket, start: StreamStart, ctx: dict, ref_id: s
 
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(user_turn_stop_timeout=0.7),
+        user_params=LLMUserAggregatorParams(user_turn_stop_timeout=0.7, user_idle_timeout=IDLE_SECONDS),
     )
 
     audiobuffer = AudioBufferProcessor(num_channels=1)
@@ -156,15 +194,32 @@ async def run_bot(websocket: WebSocket, start: StreamStart, ctx: dict, ref_id: s
         logger.info(f"[{ref_id}] Call ended — callSid={start.call_sid}")
         await task.cancel()
 
+    idle_handler = IdleHandler()
+
+    @user_aggregator.event_handler("on_user_turn_idle")
+    async def on_user_turn_idle(aggregator):
+        if idle_handler.retry_count >= 2:
+            return  # already saying goodbye
+        logger.info(f"[{ref_id}] Customer silent for {IDLE_SECONDS:.0f}s — idle prompt {idle_handler.retry_count + 1}")
+        await idle_handler.handle_idle(task)
+
+    @user_aggregator.event_handler("on_user_turn_started")
+    async def on_user_turn_started(aggregator, strategy):
+        idle_handler.reset()
+
     await PipelineRunner(handle_sigint=False).run(task)
 
-    transcript = [
-        {"role": m["role"], "text": m["content"]}
-        for m in context.messages[2:]
-        if m.get("role") in ("user", "assistant")
-        and isinstance(m.get("content"), str)
-        and m["content"].strip()
-    ]
+    transcript = []
+    for m in context.messages[2:]:  # from the seeded greeting onwards
+        text = m.get("content")
+        if m.get("role") not in ("user", "assistant") or not isinstance(text, str):
+            continue
+        # The greeting is seeded into the context and then aggregated again once spoken (merged into
+        # the next reply when the customer stays silent); keep it only once in the transcript.
+        if transcript and m["role"] == "assistant" and text.startswith(greeting_text):
+            text = text[len(greeting_text):]
+        if text.strip():
+            transcript.append({"role": m["role"], "text": text.strip()})
 
     recording_path = None
     if recorded.get("audio"):

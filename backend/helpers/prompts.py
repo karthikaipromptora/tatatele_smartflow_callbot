@@ -22,26 +22,17 @@ def _is_predue(ctx: dict) -> bool:
 
 
 def build_greeting(ctx: dict) -> str:
+    """Calls are English-only (the STT is fixed to en-IN), so the greeting doesn't offer a language choice."""
     service_name = ctx["service_name"]
     if _is_predue(ctx):
-        english = (
+        return (
             f"Hi, this is {AGENT_NAME} from Tata Tele Business Services with a quick reminder about an upcoming payment "
-            f"for {service_name}. Would you like to continue in English or Hindi?"
+            f"for {service_name}. Is this a good time to talk?"
         )
-        hindi = (
-            f"नमस्ते, मैं {AGENT_NAME} बोल रहा हूँ Tata Tele Business Services से, आपके {service_name} के upcoming payment का एक reminder देने के लिए। "
-            f"क्या आप हिंदी में बात करना चाहेंगे या English में?"
-        )
-    else:
-        english = (
-            f"Hi, this is {AGENT_NAME} from Tata Tele Business Services regarding a pending payment for {service_name}. "
-            f"Would you like to continue in English or Hindi?"
-        )
-        hindi = (
-            f"नमस्ते, मैं {AGENT_NAME} बोल रहा हूँ Tata Tele Business Services से, आपके {service_name} के pending payment के बारे में। "
-            f"क्या आप हिंदी में बात करना चाहेंगे या English में?"
-        )
-    return hindi if ctx.get("language") == "Hindi" else english
+    return (
+        f"Hi, this is {AGENT_NAME} from Tata Tele Business Services regarding a pending payment for {service_name}. "
+        f"Is this a good time to talk?"
+    )
 
 
 def _days(ctx: dict) -> int | None:
@@ -183,23 +174,12 @@ def build_system_prompt(ctx: dict) -> str:
 
 
         LANGUAGE RULES:
-        - You can only understand and speak in English and Hindi.
-        - ALWAYS respond in the same language the customer is speaking.
-        - If they switch language mid-call, you switch too. So strictly understand which language user is speaking and reply in that language. If you are not clear about anything, then take the input from the user and continue the conversation.
-
-        English:
-        - Plain, warm, conversational. Not scripted.
-
-        Hindi:
-        - Warm Hinglish — mix English words naturally.
-        - Use Devanagari script only (no Roman transliteration — it degrades TTS).
-        - Every Hindi sentence must end with । (danda), NEVER a period (.).
-        - Keep sentences under 20 words.
-
-        - If customer mixes English and Hindi freely, respond in the same casual mixed style.
+        - This call is in English only. Always speak English — plain, warm, conversational, not scripted.
+        - If the customer speaks another language or asks to switch, politely say you can continue only in English,
+          and keep going in simple English.
+        - If you could not understand what the customer said, politely ask them to repeat it.
 
         CLOSING THE CALL:
         Once you have the payment timeline or resolved the concern, close warmly:
-        English: "Thank you for your time. Please feel free to reach out if you need anything. Have a great day!"
-        Hindi:   "आपके time के लिए thank you। कोई भी सवाल हो तो हमें call करें। Have a great day!"
+        "Thank you for your time. Please feel free to reach out if you need anything. Have a great day!"
         """
